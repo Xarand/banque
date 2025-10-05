@@ -40,3 +40,15 @@ CREATE TABLE IF NOT EXISTS transactions (
   FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_tx_user_date ON transactions(user_id,date);
+
+CREATE TABLE IF NOT EXISTS categories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT, -- 'income' | 'expense' (optionnel)
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE(user_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id);
+

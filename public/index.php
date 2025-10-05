@@ -15,8 +15,8 @@ $userId = Util::currentUserId();
 $errorAccount = null;
 $errorTx = null;
 
-// Création d'un compte
-if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['form']) && $_POST['form']==='account') {
+/* Création d'un compte */
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='account') {
     try {
         Util::checkCsrf();
         $repo->createAccount($userId, $_POST['name'] ?? '');
@@ -27,26 +27,41 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['form']) && $_POST['form
     }
 }
 
-// Ajout d'une transaction
-if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['form']) && $_POST['form']==='tx') {
+/* Création d'une catégorie */
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='category') {
+    try {
+        Util::checkCsrf();
+        $repo->createCategory($userId, $_POST['cat_name'] ?? '');
+        Util::addFlash('success','Catégorie créée.');
+        Util::redirect('index.php');
+    } catch(Throwable $e){
+        $errorAccount = $e->getMessage();
+    }
+}
+
+/* Ajout transaction */
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='tx') {
     try {
         Util::checkCsrf();
         $accountId = (int)($_POST['account_id'] ?? 0);
         $date      = trim($_POST['date'] ?? '');
         $desc      = trim($_POST['description'] ?? '');
-        $amountRaw = str_replace(',', '.', trim($_POST['amount'] ?? ''));
-        if ($date === '') $date = date('Y-m-d');
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-            throw new RuntimeException("Date invalide (format attendu YYYY-MM-DD).");
+        $rawAmount = str_replace(',','.', trim($_POST['amount'] ?? ''));
+        $categoryId = isset($_POST['category_id']) && $_POST['category_id'] !== '' ? (int)$_POST['category_id'] : null;
+
+        if ($date==='') $date = date('Y-m-d');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)) {
+            throw new RuntimeException("Date invalide (YYYY-MM-DD).");
         }
-        if (!is_numeric($amountRaw)) {
+        if (!is_numeric($rawAmount)) {
             throw new RuntimeException("Montant invalide.");
         }
-        $amount = (float)$amountRaw;
+        $amount = (float)$rawAmount;
         if ($amount == 0.0) {
             throw new RuntimeException("Montant ne peut pas être 0.");
         }
-        $repo->addTransaction($userId, $accountId, $date, $amount, $desc);
+
+        $repo->addTransaction($userId,$accountId,$date,$amount,$desc,$categoryId);
         Util::addFlash('success','Transaction ajoutée.');
         Util::redirect('index.php');
     } catch(Throwable $e){
@@ -54,21 +69,24 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['form']) && $_POST['form
     }
 }
 
-$accounts = $repo->listAccounts($userId);
+$accounts    = $repo->listAccounts($userId);
+$categories  = $repo->listCategories($userId);
 
-// Récupération des transactions récentes (limitées)
+/* Récup transactions récentes */
 $pdo = $db->pdo();
 $txStmt = $pdo->prepare("
-  SELECT t.id,t.date,t.description,t.amount,a.name AS account
+  SELECT t.id,t.date,t.description,t.amount,
+         a.name AS account,
+         c.name AS category
   FROM transactions t
   JOIN accounts a ON a.id=t.account_id AND a.user_id=t.user_id
+  LEFT JOIN categories c ON c.id=t.category_id
   WHERE t.user_id=:u
   ORDER BY date(t.date) DESC, t.id DESC
   LIMIT 20
 ");
 $txStmt->execute([':u'=>$userId]);
 $transactions = $txStmt->fetchAll();
-
 ?>
 <!doctype html>
 <html lang="fr">
@@ -83,6 +101,7 @@ table td.amount { text-align:right; }
 </head>
 <body class="bg-light">
 <div class="container py-4">
+
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h1 class="h4 mb-0">Tableau de bord</h1>
     <a class="btn btn-outline-secondary btn-sm" href="logout.php">Déconnexion</a>
@@ -93,16 +112,14 @@ table td.amount { text-align:right; }
   <?php endforeach; ?>
 
   <div class="row g-4">
-    <!-- Comptes -->
+    <!-- Colonne gauche : Comptes & Catégories -->
     <div class="col-md-6">
-      <div class="card shadow-sm">
-        <div class="card-header py-2">
-          <strong>Comptes</strong>
-        </div>
+      <div class="card shadow-sm mb-3">
+        <div class="card-header py-2"><strong>Comptes</strong></div>
         <div class="card-body">
-          <?php if($errorAccount): ?><div class="alert alert-danger py-1 mb-2"><?= Util::h($errorAccount) ?></div><?php endif; ?>
+          <?php if($errorAccount): ?><div class="alert alert-danger py-1 mb-2"><?= App\Util::h($errorAccount) ?></div><?php endif; ?>
           <form method="post" class="row row-cols-lg-auto g-2 align-items-end mb-3">
-            <?= Util::csrfInput() ?>
+            <?= App\Util::csrfInput() ?>
             <input type="hidden" name="form" value="account">
             <div class="col-12">
               <label class="form-label mb-0">Nom</label>
@@ -113,13 +130,11 @@ table td.amount { text-align:right; }
             </div>
           </form>
           <table class="table table-sm table-striped mb-0">
-            <thead>
-              <tr><th>Nom</th><th class="text-end" style="width:120px;">Solde</th></tr>
-            </thead>
+            <thead><tr><th>Nom</th><th class="text-end" style="width:120px;">Solde</th></tr></thead>
             <tbody>
             <?php foreach($accounts as $a): ?>
               <tr>
-                <td><?= Util::h($a['name']) ?></td>
+                <td><?= App\Util::h($a['name']) ?></td>
                 <td class="text-end"><?= number_format((float)$a['current_balance'],2,',',' ') ?> €</td>
               </tr>
             <?php endforeach; ?>
@@ -130,35 +145,69 @@ table td.amount { text-align:right; }
           </table>
         </div>
       </div>
+
+      <div class="card shadow-sm">
+        <div class="card-header py-2"><strong>Catégories</strong></div>
+        <div class="card-body">
+          <form method="post" class="row row-cols-lg-auto g-2 align-items-end mb-3">
+            <?= App\Util::csrfInput() ?>
+            <input type="hidden" name="form" value="category">
+            <div class="col-12">
+              <label class="form-label mb-0">Nom</label>
+              <input name="cat_name" class="form-control form-control-sm" required>
+            </div>
+            <div class="col-12">
+              <button class="btn btn-secondary btn-sm">Ajouter</button>
+            </div>
+          </form>
+          <ul class="list-group list-group-sm">
+            <?php foreach($categories as $c): ?>
+              <li class="list-group-item py-1"><?= App\Util::h($c['name']) ?></li>
+            <?php endforeach; ?>
+            <?php if(!$categories): ?>
+              <li class="list-group-item py-1"><em>Aucune catégorie</em></li>
+            <?php endif; ?>
+          </ul>
+        </div>
+      </div>
     </div>
 
-    <!-- Transactions -->
+    <!-- Colonne droite : Transactions -->
     <div class="col-md-6">
       <div class="card shadow-sm mb-3">
-        <div class="card-header py-2">
-          <strong>Nouvelle transaction</strong>
-        </div>
+        <div class="card-header py-2"><strong>Nouvelle transaction</strong></div>
         <div class="card-body">
-          <?php if($errorTx): ?><div class="alert alert-danger py-1 mb-2"><?= Util::h($errorTx) ?></div><?php endif; ?>
+          <?php if($errorTx): ?><div class="alert alert-danger py-1 mb-2"><?= App\Util::h($errorTx) ?></div><?php endif; ?>
           <?php if(!$accounts): ?>
-            <p class="text-muted mb-0"><em>Crée d’abord un compte pour ajouter une transaction.</em></p>
+            <p class="text-muted mb-0"><em>Crée d’abord un compte.</em></p>
           <?php else: ?>
           <form method="post" class="row g-2">
-            <?= Util::csrfInput() ?>
+            <?= App\Util::csrfInput() ?>
             <input type="hidden" name="form" value="tx">
-            <div class="col-5">
+            <div class="col-6">
               <label class="form-label mb-0">Compte</label>
               <select name="account_id" class="form-select form-select-sm" required>
                 <?php foreach($accounts as $a): ?>
-                  <option value="<?= (int)$a['id'] ?>"><?= Util::h($a['name']) ?></option>
+                  <option value="<?= (int)$a['id'] ?>"><?= App\Util::h($a['name']) ?></option>
                 <?php endforeach; ?>
               </select>
             </div>
-            <div class="col-4">
+            <div class="col-6">
               <label class="form-label mb-0">Date</label>
               <input type="date" name="date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
             </div>
-            <div class="col-3">
+            <?php if($categories): ?>
+            <div class="col-6">
+              <label class="form-label mb-0">Catégorie</label>
+              <select name="category_id" class="form-select form-select-sm">
+                <option value="">(Aucune)</option>
+                <?php foreach($categories as $c): ?>
+                  <option value="<?= (int)$c['id'] ?>"><?= App\Util::h($c['name']) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <?php endif; ?>
+            <div class="col-6">
               <label class="form-label mb-0">Montant</label>
               <input type="text" name="amount" class="form-control form-control-sm" required placeholder="123.45">
             </div>
@@ -167,7 +216,7 @@ table td.amount { text-align:right; }
               <input type="text" name="description" class="form-control form-control-sm">
             </div>
             <div class="col-12">
-              <button class="btn btn-success btn-sm">Ajouter transaction</button>
+              <button class="btn btn-success btn-sm">Ajouter</button>
             </div>
           </form>
           <?php endif; ?>
@@ -175,15 +224,14 @@ table td.amount { text-align:right; }
       </div>
 
       <div class="card shadow-sm">
-        <div class="card-header py-2">
-          <strong>Dernières transactions</strong>
-        </div>
+        <div class="card-header py-2"><strong>Dernières transactions</strong></div>
         <div class="card-body p-0">
           <table class="table table-sm mb-0">
             <thead>
               <tr>
                 <th style="width:90px;">Date</th>
                 <th>Compte</th>
+                <th>Cat</th>
                 <th>Description</th>
                 <th class="text-end" style="width:120px;">Montant</th>
               </tr>
@@ -191,16 +239,17 @@ table td.amount { text-align:right; }
             <tbody>
             <?php foreach($transactions as $t): ?>
               <tr>
-                <td><?= Util::h($t['date']) ?></td>
-                <td><?= Util::h($t['account']) ?></td>
-                <td><?= Util::h($t['description'] ?? '') ?></td>
+                <td><?= App\Util::h($t['date']) ?></td>
+                <td><?= App\Util::h($t['account']) ?></td>
+                <td><?= $t['category'] ? App\Util::h($t['category']) : '' ?></td>
+                <td><?= App\Util::h($t['description'] ?? '') ?></td>
                 <td class="text-end <?= $t['amount']<0?'text-danger':'text-success' ?>">
                   <?= number_format((float)$t['amount'],2,',',' ') ?> €
                 </td>
               </tr>
             <?php endforeach; ?>
             <?php if(!$transactions): ?>
-              <tr><td colspan="4"><em>Aucune transaction</em></td></tr>
+              <tr><td colspan="5"><em>Aucune transaction</em></td></tr>
             <?php endif; ?>
             </tbody>
           </table>
@@ -209,6 +258,7 @@ table td.amount { text-align:right; }
 
     </div>
   </div>
+
 </div>
 </body>
 </html>
