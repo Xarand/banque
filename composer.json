@@ -1,0 +1,12 @@
+{
+    "name": "xarand/banque",
+    "type": "project",
+    "autoload": {
+      "psr-4": {
+        "App\\": "src/"
+      }
+    },
+    "require": {
+      "ext-pdo": "*"
+    }
+  }

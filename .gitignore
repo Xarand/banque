@@ -1,0 +1,15 @@
+﻿@'
+/vendor/
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+/data/backups/
+/migrations/archive/*.php
+.env
+.vscode/
+.idea/
+*.log
+*.tmp
+*.bak
+*.swp
+'@ | Out-File -Encoding UTF8 .gitignore
