@@ -18,14 +18,19 @@ class FinanceRepository
     /* =========================
        Comptes
        ========================= */
-    public function createAccount(int $userId, string $name, string $currency='EUR', ?string $type=null, float $initial=0.0): int
-    {
+    public function createAccount(
+        int $userId,
+        string $name,
+        string $currency = 'EUR',
+        ?string $type = null,
+        float $initial = 0.0
+    ): int {
         $name = trim($name);
         if ($name === '') {
             throw new RuntimeException("Nom de compte requis.");
         }
         $check = $this->pdo->prepare("SELECT 1 FROM accounts WHERE user_id=:u AND lower(name)=lower(:n)");
-        $check->execute([':u'=>$userId, ':n'=>$name]);
+        $check->execute([':u' => $userId, ':n' => $name]);
         if ($check->fetchColumn()) {
             throw new RuntimeException("Ce nom de compte existe déjà.");
         }
@@ -34,11 +39,11 @@ class FinanceRepository
           VALUES(:u,:n,:t,:c,:b)
         ");
         $stmt->execute([
-            ':u'=>$userId,
-            ':n'=>$name,
-            ':t'=>$type,
-            ':c'=>$currency,
-            ':b'=>$initial
+            ':u' => $userId,
+            ':n' => $name,
+            ':t' => $type,
+            ':c' => $currency,
+            ':b' => $initial
         ]);
         return (int)$this->pdo->lastInsertId();
     }
@@ -58,24 +63,24 @@ class FinanceRepository
           ORDER BY a.name COLLATE NOCASE ASC
         ";
         $st = $this->pdo->prepare($sql);
-        $st->execute([':u'=>$userId]);
+        $st->execute([':u' => $userId]);
         return $st->fetchAll() ?: [];
     }
 
     /* =========================
        Catégories
        ========================= */
-    public function createCategory(int $userId, string $name, ?string $type=null): int
+    public function createCategory(int $userId, string $name, ?string $type = null): int
     {
         $name = trim($name);
         if ($name === '') {
             throw new RuntimeException("Nom de catégorie requis.");
         }
-        if ($type !== null && !in_array($type, ['income','expense'], true)) {
+        if ($type !== null && !in_array($type, ['income', 'expense'], true)) {
             $type = null;
         }
         $check = $this->pdo->prepare("SELECT 1 FROM categories WHERE user_id=:u AND lower(name)=lower(:n)");
-        $check->execute([':u'=>$userId, ':n'=>$name]);
+        $check->execute([':u' => $userId, ':n' => $name]);
         if ($check->fetchColumn()) {
             throw new RuntimeException("Catégorie déjà existante.");
         }
@@ -83,7 +88,7 @@ class FinanceRepository
           INSERT INTO categories(user_id,name,type)
           VALUES(:u,:n,:t)
         ");
-        $st->execute([':u'=>$userId, ':n'=>$name, ':t'=>$type]);
+        $st->execute([':u' => $userId, ':n' => $name, ':t' => $type]);
         return (int)$this->pdo->lastInsertId();
     }
 
@@ -95,62 +100,79 @@ class FinanceRepository
           WHERE user_id=:u
           ORDER BY name COLLATE NOCASE
         ");
-        $st->execute([':u'=>$userId]);
+        $st->execute([':u' => $userId]);
         return $st->fetchAll() ?: [];
     }
 
     /* =========================
-       Transactions (déjà adaptées D+B)
+       Transactions (D+B logique de signe)
        ========================= */
+
+    /**
+     * direction: 'credit'|'debit'|null (utilisé uniquement si pas de catégorie typée)
+     */
     public function addTransaction(
         int $userId,
         int $accountId,
         string $date,
         float $amount,
-        string $desc='',
-        ?int $categoryId=null,
-        ?string $notes=null,
-        ?string $direction=null
+        string $desc = '',
+        ?int $categoryId = null,
+        ?string $notes = null,
+        ?string $direction = null
     ): int {
+        // Vérif compte
         $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
-        $acc->execute([':a'=>$accountId, ':u'=>$userId]);
+        $acc->execute([':a' => $accountId, ':u' => $userId]);
         if (!$acc->fetchColumn()) {
             throw new RuntimeException("Compte introuvable.");
         }
+
+        // Catégorie
         $catType = null;
         if ($categoryId !== null) {
             $cat = $this->pdo->prepare("SELECT type FROM categories WHERE id=:c AND user_id=:u");
-            $cat->execute([':c'=>$categoryId, ':u'=>$userId]);
+            $cat->execute([':c' => $categoryId, ':u' => $userId]);
             $catType = $cat->fetchColumn();
             if ($catType === false) {
                 throw new RuntimeException("Catégorie invalide.");
             }
-            if (!in_array($catType, ['income','expense',null], true)) {
+            if (!in_array($catType, ['income', 'expense', null], true)) {
                 $catType = null;
             }
         }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)) {
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
             throw new RuntimeException("Date invalide.");
         }
         if ($amount == 0.0) {
             throw new RuntimeException("Montant nul interdit.");
         }
+
         $normalized = abs($amount);
+
         if ($catType === 'expense') {
             $normalized = -$normalized;
         } elseif ($catType === 'income') {
-            // OK positif
+            // reste positif
         } else {
-            if ($direction === 'debit') $normalized = -$normalized;
+            if ($direction === 'debit') {
+                $normalized = -$normalized;
+            } // 'credit' => positif
         }
+
         $st = $this->pdo->prepare("
           INSERT INTO transactions(user_id,account_id,date,description,amount,category_id,notes)
           VALUES(:u,:a,:d,:ds,:amt,:cat,:notes)
         ");
         $st->execute([
-            ':u'=>$userId, ':a'=>$accountId, ':d'=>$date,
-            ':ds'=>$desc ?: null, ':amt'=>$normalized,
-            ':cat'=>$categoryId, ':notes'=>$notes ?: null
+            ':u' => $userId,
+            ':a' => $accountId,
+            ':d' => $date,
+            ':ds' => $desc ?: null,
+            ':amt' => $normalized,
+            ':cat' => $categoryId,
+            ':notes' => $notes ?: null
         ]);
         return (int)$this->pdo->lastInsertId();
     }
@@ -164,66 +186,86 @@ class FinanceRepository
           WHERE t.id=:id AND t.user_id=:u
           LIMIT 1
         ");
-        $st->execute([':id'=>$id, ':u'=>$userId]);
+        $st->execute([':id' => $id, ':u' => $userId]);
         $r = $st->fetch(PDO::FETCH_ASSOC);
         return $r ?: null;
     }
 
+    /**
+     * direction: 'credit'|'debit'|null (utilisé uniquement si pas de catégorie typée)
+     */
     public function updateTransaction(
         int $userId,
         int $id,
         int $accountId,
         string $date,
         float $amount,
-        string $desc='',
-        ?int $categoryId=null,
-        ?string $notes=null,
-        ?string $direction=null
+        string $desc = '',
+        ?int $categoryId = null,
+        ?string $notes = null,
+        ?string $direction = null
     ): void {
         $existing = $this->getTransactionById($userId, $id);
         if (!$existing) {
             throw new RuntimeException("Transaction introuvable.");
         }
+
         $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
-        $acc->execute([':a'=>$accountId, ':u'=>$userId]);
+        $acc->execute([':a' => $accountId, ':u' => $userId]);
         if (!$acc->fetchColumn()) {
             throw new RuntimeException("Compte invalide.");
         }
+
         $catType = null;
         if ($categoryId !== null) {
             $cat = $this->pdo->prepare("SELECT type FROM categories WHERE id=:c AND user_id=:u");
-            $cat->execute([':c'=>$categoryId, ':u'=>$userId]);
+            $cat->execute([':c' => $categoryId, ':u' => $userId]);
             $catType = $cat->fetchColumn();
             if ($catType === false) {
                 throw new RuntimeException("Catégorie invalide.");
             }
-            if (!in_array($catType, ['income','expense',null], true)) {
+            if (!in_array($catType, ['income', 'expense', null], true)) {
                 $catType = null;
             }
         }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)) {
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
             throw new RuntimeException("Date invalide.");
         }
         if ($amount == 0.0) {
             throw new RuntimeException("Montant nul interdit.");
         }
+
         $normalized = abs($amount);
         if ($catType === 'expense') {
             $normalized = -$normalized;
         } elseif ($catType === 'income') {
-            // OK
+            // positif
         } else {
-            if ($direction === 'debit') $normalized = -$normalized;
+            if ($direction === 'debit') {
+                $normalized = -$normalized;
+            } // credit => positif
         }
+
         $st = $this->pdo->prepare("
           UPDATE transactions
-             SET account_id=:a,date=:d,description=:ds,amount=:amt,category_id=:cat,notes=:notes
+             SET account_id=:a,
+                 date=:d,
+                 description=:ds,
+                 amount=:amt,
+                 category_id=:cat,
+                 notes=:notes
            WHERE id=:id AND user_id=:u
         ");
         $st->execute([
-            ':a'=>$accountId, ':d'=>$date, ':ds'=>$desc ?: null,
-            ':amt'=>$normalized, ':cat'=>$categoryId, ':notes'=>$notes ?: null,
-            ':id'=>$id, ':u'=>$userId
+            ':a' => $accountId,
+            ':d' => $date,
+            ':ds' => $desc ?: null,
+            ':amt' => $normalized,
+            ':cat' => $categoryId,
+            ':notes' => $notes ?: null,
+            ':id' => $id,
+            ':u' => $userId
         ]);
         if ($st->rowCount() === 0) {
             throw new RuntimeException("Mise à jour non effectuée.");
@@ -233,51 +275,117 @@ class FinanceRepository
     public function deleteTransaction(int $userId, int $id): void
     {
         $st = $this->pdo->prepare("DELETE FROM transactions WHERE id=:id AND user_id=:u");
-        $st->execute([':id'=>$id, ':u'=>$userId]);
+        $st->execute([':id' => $id, ':u' => $userId]);
     }
 
-    public function searchTransactions(int $userId, array $filters, int $limit=100): array
+    public function searchTransactions(int $userId, array $filters, int $limit = 100): array
     {
-        $where = ["t.user_id = :u"];
-        $params = [':u'=>$userId];
+        $where  = ["t.user_id = :u"];
+        $params = [':u' => $userId];
+
         if (!empty($filters['account_id'])) {
-            $where[]="t.account_id=:acc"; $params[':acc']=(int)$filters['account_id'];
+            $where[] = "t.account_id = :acc";
+            $params[':acc'] = (int)$filters['account_id'];
         }
         if (!empty($filters['category_id'])) {
-            $where[]="t.category_id=:cat"; $params[':cat']=(int)$filters['category_id'];
+            $where[] = "t.category_id = :cat";
+            $params[':cat'] = (int)$filters['category_id'];
         }
         if (!empty($filters['date_from'])) {
-            $where[]="date(t.date)>=date(:df)"; $params[':df']=$filters['date_from'];
+            $where[] = "date(t.date) >= date(:df)";
+            $params[':df'] = $filters['date_from'];
         }
         if (!empty($filters['date_to'])) {
-            $where[]="date(t.date)<=date(:dt)"; $params[':dt']=$filters['date_to'];
+            $where[] = "date(t.date) <= date(:dt)";
+            $params[':dt'] = $filters['date_to'];
         }
+
         $sql = "
           SELECT t.id,t.date,t.description,t.amount,t.notes,
                  a.name AS account, c.name AS category, c.type AS category_type
           FROM transactions t
           JOIN accounts a ON a.id=t.account_id AND a.user_id=t.user_id
           LEFT JOIN categories c ON c.id=t.category_id
-          WHERE ".implode(' AND ',$where)."
+          WHERE " . implode(' AND ', $where) . "
           ORDER BY date(t.date) DESC, t.id DESC
-          LIMIT ".(int)$limit;
-        $st=$this->pdo->prepare($sql);
+          LIMIT " . (int)$limit;
+
+        $st = $this->pdo->prepare($sql);
         $st->execute($params);
-        $rows=$st->fetchAll(PDO::FETCH_ASSOC);
-        $total=0; foreach($rows as $r){ $total+=(float)$r['amount']; }
-        return ['rows'=>$rows,'count'=>count($rows),'sum'=>$total];
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+        $total = 0.0;
+        foreach ($rows as $r) {
+            $total += (float)$r['amount'];
+        }
+
+        return [
+            'rows'  => $rows,
+            'count' => count($rows),
+            'sum'   => $total
+        ];
+    }
+
+    /**
+     * Retourne un PDOStatement pour exporter toutes les transactions filtrées (pas de LIMIT)
+     */
+    public function exportTransactions(int $userId, array $filters): PDOStatement
+    {
+        $where   = ["t.user_id = :u"];
+        $params  = [':u' => $userId];
+
+        if (!empty($filters['account_id'])) {
+            $where[]        = "t.account_id = :acc";
+            $params[':acc'] = (int)$filters['account_id'];
+        }
+        if (!empty($filters['category_id'])) {
+            $where[]        = "t.category_id = :cat";
+            $params[':cat'] = (int)$filters['category_id'];
+        }
+        if (!empty($filters['date_from'])) {
+            $where[]        = "date(t.date) >= date(:df)";
+            $params[':df']  = $filters['date_from'];
+        }
+        if (!empty($filters['date_to'])) {
+            $where[]        = "date(t.date) <= date(:dt)";
+            $params[':dt']  = $filters['date_to'];
+        }
+
+        $sql = "
+          SELECT t.id,
+                 t.date,
+                 a.name        AS account,
+                 c.name        AS category,
+                 c.type        AS category_type,
+                 t.description,
+                 t.amount,
+                 t.notes
+          FROM transactions t
+          JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+          LEFT JOIN categories c ON c.id = t.category_id
+          WHERE " . implode(' AND ', $where) . "
+          ORDER BY date(t.date) ASC, t.id ASC
+        ";
+        $st = $this->pdo->prepare($sql);
+        $st->execute($params);
+        return $st;
     }
 
     /* =========================
-       RAPPORTS
+       Rapports
        ========================= */
-
-    public function getCategoryTotals(int $userId, ?string $from=null, ?string $to=null): array
+    public function getCategoryTotals(int $userId, ?string $from = null, ?string $to = null): array
     {
-        $params = [':u'=>$userId];
-        $dateWhere = "";
-        if ($from) { $dateWhere.=" AND date(t.date)>=date(:from)"; $params[':from']=$from; }
-        if ($to)   { $dateWhere.=" AND date(t.date)<=date(:to)";   $params[':to']=$to; }
+        $params = [':u' => $userId];
+        $dateWhere = '';
+        if ($from) {
+            $dateWhere .= " AND date(t.date)>=date(:from)";
+            $params[':from'] = $from;
+        }
+        if ($to) {
+            $dateWhere .= " AND date(t.date)<=date(:to)";
+            $params[':to'] = $to;
+        }
         $sql = "
           SELECT c.id,c.name,c.type,
                  COALESCE(SUM(t.amount),0) AS total,
@@ -291,34 +399,46 @@ class FinanceRepository
           GROUP BY c.id
           ORDER BY ABS(total) DESC, c.name COLLATE NOCASE
         ";
-        $st=$this->pdo->prepare($sql);
+        $st = $this->pdo->prepare($sql);
         $st->execute($params);
         return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    public function getUncategorizedTotals(int $userId, ?string $from=null, ?string $to=null): array
+    public function getUncategorizedTotals(int $userId, ?string $from = null, ?string $to = null): array
     {
-        $params=[':u'=>$userId];
-        $where="t.category_id IS NULL AND t.user_id=:u";
-        if ($from) { $where.=" AND date(t.date)>=date(:from)"; $params[':from']=$from; }
-        if ($to)   { $where.=" AND date(t.date)<=date(:to)";   $params[':to']=$to; }
-        $sql="
+        $params = [':u' => $userId];
+        $where  = "t.category_id IS NULL AND t.user_id=:u";
+        if ($from) {
+            $where .= " AND date(t.date)>=date(:from)";
+            $params[':from'] = $from;
+        }
+        if ($to) {
+            $where .= " AND date(t.date)<=date(:to)";
+            $params[':to'] = $to;
+        }
+        $sql = "
           SELECT COALESCE(SUM(t.amount),0) AS total, COUNT(t.id) AS txn_count
           FROM transactions t
           WHERE $where
         ";
-        $st=$this->pdo->prepare($sql);
+        $st = $this->pdo->prepare($sql);
         $st->execute($params);
         return $st->fetch(PDO::FETCH_ASSOC) ?: ['total'=>0,'txn_count'=>0];
     }
 
-    public function getAccountTotals(int $userId, ?string $from=null, ?string $to=null): array
+    public function getAccountTotals(int $userId, ?string $from = null, ?string $to = null): array
     {
-        $params=[':u'=>$userId];
-        $dateWhere="";
-        if ($from) { $dateWhere.=" AND date(t.date)>=date(:from)"; $params[':from']=$from; }
-        if ($to)   { $dateWhere.=" AND date(t.date)<=date(:to)";   $params[':to']=$to; }
-        $sql="
+        $params = [':u' => $userId];
+        $dateWhere = '';
+        if ($from) {
+            $dateWhere .= " AND date(t.date)>=date(:from)";
+            $params[':from'] = $from;
+        }
+        if ($to) {
+            $dateWhere .= " AND date(t.date)<=date(:to)";
+            $params[':to'] = $to;
+        }
+        $sql = "
           SELECT a.id,a.name,
                  COALESCE(SUM(t.amount),0) AS total,
                  COALESCE(SUM(CASE WHEN t.amount>=0 THEN t.amount END),0) AS credits,
@@ -332,18 +452,19 @@ class FinanceRepository
           GROUP BY a.id
           ORDER BY a.name COLLATE NOCASE
         ";
-        $st=$this->pdo->prepare($sql);
+        $st = $this->pdo->prepare($sql);
         $st->execute($params);
         return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    public function getMonthlyFlows(int $userId, int $months=12, ?string $to=null): array
+    public function getMonthlyFlows(int $userId, int $months = 12, ?string $to = null): array
     {
-        // Si pas de 'to', aujourd'hui
-        $to = $to ?: date('Y-m-d');
-        // Date de début approx (months - 1)
-        $start = (new \DateTimeImmutable($to))->modify('-'.($months-1).' months')->format('Y-m-01');
-        $sql="
+        $to    = $to ?: date('Y-m-d');
+        $start = (new \DateTimeImmutable($to))
+            ->modify('-' . ($months - 1) . ' months')
+            ->format('Y-m-01');
+
+        $sql = "
           SELECT strftime('%Y-%m', t.date) AS ym,
                  SUM(CASE WHEN t.amount>=0 THEN t.amount ELSE 0 END) AS credits,
                  SUM(CASE WHEN t.amount<0 THEN -t.amount ELSE 0 END) AS debits,
@@ -355,9 +476,8 @@ class FinanceRepository
           GROUP BY ym
           ORDER BY ym ASC
         ";
-        $st=$this->pdo->prepare($sql);
-        $st->execute([':u'=>$userId, ':start'=>$start, ':to'=>$to]);
-        $rows=$st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        return $rows;
+        $st = $this->pdo->prepare($sql);
+        $st->execute([':u' => $userId, ':start' => $start, ':to' => $to]);
+        return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 }

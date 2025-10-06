@@ -10,12 +10,11 @@ Util::requireAuth();
 $db        = new Database();
 $repo      = new FinanceRepository($db);
 $userId    = Util::currentUserId();
+
 $errorAccount = null;
 $errorTx      = null;
 
-/* -----------------------------
-   Suppression d'une transaction
-   ----------------------------- */
+/* Suppression transaction */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'delete_tx') {
     try {
         Util::checkCsrf();
@@ -31,9 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'delete_
     }
 }
 
-/* -----------------------------
-   Création d'un compte
-   ----------------------------- */
+/* Création compte */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'account') {
     try {
         Util::checkCsrf();
@@ -45,9 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'account
     }
 }
 
-/* -----------------------------
-   Création d'une catégorie
-   ----------------------------- */
+/* Création catégorie */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'category') {
     try {
         Util::checkCsrf();
@@ -61,22 +56,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'categor
     }
 }
 
-/* -----------------------------
-   Ajout d'une transaction
-   ----------------------------- */
+/* Ajout transaction */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'tx') {
     try {
         Util::checkCsrf();
 
         $accountId = (int)($_POST['account_id'] ?? 0);
         $date      = trim($_POST['date'] ?? '');
-        if ($date === '') {
-            $date = date('Y-m-d');
-        }
+        if ($date === '') $date = date('Y-m-d');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
             throw new RuntimeException("Date invalide.");
         }
-
         $rawAmount = str_replace(',', '.', trim($_POST['amount'] ?? ''));
         if (!is_numeric($rawAmount)) {
             throw new RuntimeException("Montant invalide.");
@@ -90,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'tx') {
         $notes      = trim($_POST['notes'] ?? '');
         $categoryId = isset($_POST['category_id']) && $_POST['category_id'] !== '' ? (int)$_POST['category_id'] : null;
         $direction  = $_POST['direction'] ?? null;
-        if ($direction !== null && !in_array($direction, ['credit', 'debit'], true)) {
+        if ($direction !== null && !in_array($direction, ['credit','debit'], true)) {
             $direction = null;
         }
 
@@ -115,9 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'tx') {
 $accounts   = $repo->listAccounts($userId);
 $categories = $repo->listCategories($userId);
 
-/* -----------------------------
-   Filtres (GET)
-   ----------------------------- */
+/* Filtres */
 $filterAccountId  = isset($_GET['account_id']) && $_GET['account_id'] !== '' ? (int)$_GET['account_id'] : null;
 $filterCategoryId = isset($_GET['category_id']) && $_GET['category_id'] !== '' ? (int)$_GET['category_id'] : null;
 $dateFrom         = isset($_GET['date_from']) ? trim($_GET['date_from']) : '';
@@ -149,13 +137,20 @@ $filters = [
     'date_to'     => $dateTo ?: null
 ];
 
-$search        = $repo->searchTransactions($userId, $filters, 100);
-$transactions  = $search['rows'];
-$txCount       = $search['count'];
-$txSum         = $search['sum'];
+$search       = $repo->searchTransactions($userId, $filters, 100);
+$transactions = $search['rows'];
+$txCount      = $search['count'];
+$txSum        = $search['sum'];
 
-/* Helper */
 function h(string $v): string { return App\Util::h($v); }
+
+/* URL Export CSV */
+$query = [];
+if ($filterAccountId !== null)  $query['account_id']  = $filterAccountId;
+if ($filterCategoryId !== null) $query['category_id'] = $filterCategoryId;
+if ($dateFrom !== '')           $query['date_from']   = $dateFrom;
+if ($dateTo !== '')             $query['date_to']     = $dateTo;
+$exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '');
 
 ?>
 <!doctype html>
@@ -167,7 +162,6 @@ function h(string $v): string { return App\Util::h($v); }
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="assets/app.css" rel="stylesheet">
 <style>
-/* Petits compléments spécifiques index */
 .tx-badge-credit { background:#d1e7dd; color:#0f5132; }
 .tx-badge-debit  { background:#f8d7da; color:#842029; }
 </style>
@@ -197,7 +191,7 @@ function h(string $v): string { return App\Util::h($v); }
   <?php endforeach; ?>
 
   <div class="row">
-    <!-- Colonne gauche (formulaires) -->
+    <!-- Colonne gauche -->
     <div class="col-lg-4 col-md-5">
       <h2 class="h6 mt-2">Nouveau compte</h2>
       <?php if($errorAccount): ?><div class="alert alert-danger py-1 mb-2"><?= h($errorAccount) ?></div><?php endif; ?>
@@ -294,11 +288,11 @@ function h(string $v): string { return App\Util::h($v); }
       </form>
     </div>
 
-    <!-- Colonne droite (transactions) -->
+    <!-- Colonne droite -->
     <div class="col-lg-8 col-md-7">
       <h2 class="h6 mt-2">Transactions (filtrées)</h2>
 
-      <!-- Formulaire de filtre -->
+      <!-- Formulaire filtres -->
       <form method="get" class="row g-2 align-items-end mb-2">
         <div class="col-6 col-sm-3">
           <label class="form-label mb-1">Compte</label>
@@ -338,6 +332,13 @@ function h(string $v): string { return App\Util::h($v); }
         </div>
       </form>
 
+      <!-- Bouton Export -->
+      <div class="mb-3">
+        <a href="<?= h($exportUrl) ?>" class="btn btn-sm btn-outline-success">
+          Exporter CSV (transactions filtrées)
+        </a>
+      </div>
+
       <div class="mb-2 small text-muted">
         <?= (int)$txCount ?> transaction(s), total :
         <strong class="<?= $txSum < 0 ? 'text-danger':'text-success' ?>">
@@ -345,7 +346,7 @@ function h(string $v): string { return App\Util::h($v); }
         </strong>
       </div>
 
-      <!-- Vue Cartes (mobile) -->
+      <!-- Vue cartes mobile -->
       <div class="tx-cards">
         <?php foreach($transactions as $t): ?>
           <div class="tx-card">
@@ -387,7 +388,7 @@ function h(string $v): string { return App\Util::h($v); }
         <?php endif; ?>
       </div>
 
-      <!-- Tableau (desktop) -->
+      <!-- Tableau desktop -->
       <div class="desktop-table-wrapper">
         <div class="table-responsive">
           <table class="table table-sm table-striped align-middle">
@@ -451,14 +452,13 @@ function h(string $v): string { return App\Util::h($v); }
 
 <script>
 function confirmDelete(form){
-  if(confirm('Supprimer cette transaction ?')) { return true; }
-  return false;
+  return confirm('Supprimer cette transaction ?');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const catSelect   = document.getElementById('tx-category');
-  const dirRadios   = document.querySelectorAll('input[name="direction"]');
-  const infoAuto    = document.getElementById('direction-auto-info');
+  const catSelect = document.getElementById('tx-category');
+  const dirRadios = document.querySelectorAll('input[name="direction"]');
+  const infoAuto  = document.getElementById('direction-auto-info');
 
   function updateDirectionState() {
     if(!catSelect) return;
