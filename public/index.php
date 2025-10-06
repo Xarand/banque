@@ -62,15 +62,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='tx') {
         $date = trim($_POST['date'] ?? '');
         if ($date === '') $date = date('Y-m-d');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)) {
-            throw new RuntimeException("Date invalide.");
+            throw new \RuntimeException("Date invalide.");
         }
         $rawAmount = str_replace(',','.', trim($_POST['amount'] ?? ''));
         if (!is_numeric($rawAmount)) {
-            throw new RuntimeException("Montant invalide.");
+            throw new \RuntimeException("Montant invalide.");
         }
         $amount = (float)$rawAmount;
         if ($amount == 0.0) {
-            throw new RuntimeException("Montant nul interdit.");
+            throw new \RuntimeException("Montant nul interdit.");
         }
         $desc = trim($_POST['description'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
@@ -87,21 +87,46 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='tx') {
 $accounts   = $repo->listAccounts($userId);
 $categories = $repo->listCategories($userId);
 
-/* Transactions récentes */
-$pdo = $db->pdo();
-$txStmt = $pdo->prepare("
-  SELECT t.id,t.date,t.description,t.amount,t.notes,
-         a.name AS account,
-         c.name AS category
-  FROM transactions t
-  JOIN accounts a ON a.id=t.account_id AND a.user_id=t.user_id
-  LEFT JOIN categories c ON c.id=t.category_id
-  WHERE t.user_id=:u
-  ORDER BY date(t.date) DESC, t.id DESC
-  LIMIT 30
-");
-$txStmt->execute([':u'=>$userId]);
-$transactions = $txStmt->fetchAll();
+/* --------- Filtres --------- */
+$filterAccountId  = isset($_GET['account_id']) && $_GET['account_id'] !== '' ? (int)$_GET['account_id'] : null;
+$filterCategoryId = isset($_GET['category_id']) && $_GET['category_id'] !== '' ? (int)$_GET['category_id'] : null;
+$dateFrom = isset($_GET['date_from']) ? trim($_GET['date_from']) : '';
+$dateTo   = isset($_GET['date_to']) ? trim($_GET['date_to']) : '';
+
+$validDate = function(string $d): bool {
+    return $d === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $d);
+};
+if (!$validDate($dateFrom)) $dateFrom = '';
+if (!$validDate($dateTo))   $dateTo = '';
+
+// Validation appartenance compte
+if ($filterAccountId) {
+    $found = false;
+    foreach ($accounts as $a) {
+        if ((int)$a['id'] === $filterAccountId) { $found = true; break; }
+    }
+    if (!$found) $filterAccountId = null;
+}
+// Validation appartenance catégorie
+if ($filterCategoryId) {
+    $found = false;
+    foreach ($categories as $c) {
+        if ((int)$c['id'] === $filterCategoryId) { $found = true; break; }
+    }
+    if (!$found) $filterCategoryId = null;
+}
+
+$filters = [
+    'account_id'  => $filterAccountId,
+    'category_id' => $filterCategoryId,
+    'date_from'   => $dateFrom ?: null,
+    'date_to'     => $dateTo ?: null
+];
+
+$search = $repo->searchTransactions($userId, $filters, 100);
+$transactions = $search['rows'];
+$txCount = $search['count'];
+$txSum   = $search['sum'];
 ?>
 <!doctype html>
 <html lang="fr">
@@ -174,7 +199,7 @@ function confirmDelete(form){
         </div>
         <div class="mb-2">
           <label class="form-label mb-1">Date</label>
-            <input type="date" name="date" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
+            <input type="date" name="date" class="form-control form-control-sm" value="<?= App\Util::h(date('Y-m-d')) ?>">
         </div>
         <div class="mb-2">
           <label class="form-label mb-1">Montant</label>
@@ -202,7 +227,54 @@ function confirmDelete(form){
     </div>
 
     <div class="col-md-8">
-      <h2 class="h6">Transactions récentes</h2>
+      <h2 class="h6">Transactions (filtrées)</h2>
+
+      <form method="get" class="row g-2 align-items-end mb-2">
+        <div class="col-sm-3">
+          <label class="form-label mb-1">Compte</label>
+          <select name="account_id" class="form-select form-select-sm">
+            <option value="">(Tous)</option>
+            <?php foreach($accounts as $a): ?>
+              <option value="<?= (int)$a['id'] ?>" <?= $filterAccountId===$a['id']?'selected':'' ?>>
+                <?= App\Util::h($a['name']) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="col-sm-3">
+          <label class="form-label mb-1">Catégorie</label>
+          <select name="category_id" class="form-select form-select-sm">
+            <option value="">(Toutes)</option>
+            <?php foreach($categories as $c): ?>
+              <option value="<?= (int)$c['id'] ?>" <?= $filterCategoryId===$c['id']?'selected':'' ?>>
+                <?= App\Util::h($c['name']) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="col-sm-2">
+          <label class="form-label mb-1">Du</label>
+          <input type="date" name="date_from" value="<?= App\Util::h($dateFrom) ?>" class="form-control form-control-sm">
+        </div>
+        <div class="col-sm-2">
+          <label class="form-label mb-1">Au</label>
+          <input type="date" name="date_to" value="<?= App\Util::h($dateTo) ?>" class="form-control form-control-sm">
+        </div>
+        <div class="col-sm-2 d-flex gap-2">
+          <button class="btn btn-sm btn-outline-primary flex-grow-1">Filtrer</button>
+          <?php if($filterAccountId || $filterCategoryId || $dateFrom || $dateTo): ?>
+            <a href="index.php" class="btn btn-sm btn-outline-secondary" title="Réinitialiser">✕</a>
+          <?php endif; ?>
+        </div>
+      </form>
+
+      <div class="mb-2 small text-muted">
+        <?= (int)$txCount ?> transaction(s), total :
+        <strong class="<?= $txSum<0?'text-danger':'text-success' ?>">
+          <?= number_format($txSum, 2, ',', ' ') ?>
+        </strong>
+      </div>
+
       <div class="table-responsive">
         <table class="table table-sm table-striped align-middle">
           <thead>

@@ -97,7 +97,7 @@ class FinanceRepository
     }
 
     /* =========================
-       Transactions
+       Transactions (CRUD)
        ========================= */
     public function addTransaction(
         int $userId,
@@ -120,6 +120,13 @@ class FinanceRepository
             if (!$cat->fetchColumn()) {
                 throw new RuntimeException("Catégorie invalide.");
             }
+        }
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)) {
+            throw new RuntimeException("Date invalide.");
+        }
+        if ($amount == 0.0) {
+            throw new RuntimeException("Montant nul interdit.");
         }
 
         $st = $this->pdo->prepare("
@@ -188,13 +195,11 @@ class FinanceRepository
         ?int $categoryId=null,
         ?string $notes=null
     ): void {
-        // Existence + propriété de la transaction
         $existing = $this->getTransactionById($userId, $id);
         if (!$existing) {
             throw new RuntimeException("Transaction introuvable.");
         }
 
-        // Compte appartient à l'utilisateur
         $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
         $acc->execute([':a'=>$accountId, ':u'=>$userId]);
         if (!$acc->fetchColumn()) {
@@ -245,6 +250,61 @@ class FinanceRepository
     {
         $st = $this->pdo->prepare("DELETE FROM transactions WHERE id=:id AND user_id=:u");
         $st->execute([':id'=>$id, ':u'=>$userId]);
-        // Pas d'erreur si déjà supprimé : silencieux
+    }
+
+    /* =========================
+       Recherche / Filtrage
+       ========================= */
+    public function searchTransactions(
+        int $userId,
+        array $filters,
+        int $limit = 100
+    ): array {
+        $where = ["t.user_id = :u"];
+        $params = [':u' => $userId];
+
+        if (!empty($filters['account_id'])) {
+            $where[] = "t.account_id = :acc";
+            $params[':acc'] = (int)$filters['account_id'];
+        }
+        if (!empty($filters['category_id'])) {
+            $where[] = "t.category_id = :cat";
+            $params[':cat'] = (int)$filters['category_id'];
+        }
+        if (!empty($filters['date_from'])) {
+            $where[] = "date(t.date) >= date(:df)";
+            $params[':df'] = $filters['date_from'];
+        }
+        if (!empty($filters['date_to'])) {
+            $where[] = "date(t.date) <= date(:dt)";
+            $params[':dt'] = $filters['date_to'];
+        }
+
+        $whereSql = implode(' AND ', $where);
+
+        $sql = "
+          SELECT t.id, t.date, t.description, t.amount, t.notes,
+                 a.name AS account, c.name AS category
+          FROM transactions t
+          JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+          LEFT JOIN categories c ON c.id = t.category_id
+          WHERE $whereSql
+          ORDER BY date(t.date) DESC, t.id DESC
+          LIMIT " . (int)$limit;
+
+        $st = $this->pdo->prepare($sql);
+        $st->execute($params);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+        $total = 0.0;
+        foreach ($rows as $r) {
+            $total += (float)$r['amount'];
+        }
+
+        return [
+            'rows'  => $rows,
+            'count' => count($rows),
+            'sum'   => $total
+        ];
     }
 }
