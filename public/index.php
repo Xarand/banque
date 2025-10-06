@@ -8,7 +8,6 @@ Util::startSession();
 Util::requireAuth();
 
 $db = new Database();
-$db->ensureSchema(__DIR__.'/../schema.sql');
 $repo = new FinanceRepository($db);
 $userId = Util::currentUserId();
 

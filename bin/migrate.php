@@ -4,13 +4,14 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use App\Database;
-use PDO;
-use RuntimeException;
 
-$dir = realpath(__DIR__ . '/../migrations');
-if (!$dir) {
-    fwrite(STDERR, "Dossier migrations introuvable.\n");
-    exit(1);
+$dir = __DIR__ . '/../migrations';
+if (!is_dir($dir)) {
+    echo "Dossier migrations manquant, création...\n";
+    if (!mkdir($dir, 0775, true) && !is_dir($dir)) {
+        fwrite(STDERR, "Impossible de créer le dossier migrations.\n");
+        exit(1);
+    }
 }
 
 $db = new Database();
@@ -26,7 +27,7 @@ $pdo->exec("
 
 $applied = [];
 $st = $pdo->query("SELECT version FROM schema_migrations");
-foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $v) {
+foreach ($st->fetchAll(\PDO::FETCH_COLUMN) as $v) {
     $applied[$v] = true;
 }
 
@@ -35,8 +36,7 @@ natsort($files);
 
 $pending = [];
 foreach ($files as $file) {
-    $base = basename($file);
-    $version = preg_replace('/\.sql$/', '', $base);
+    $version = basename($file, '.sql');
     if (!isset($applied[$version])) {
         $pending[$version] = $file;
     }
@@ -53,7 +53,7 @@ try {
         echo "==> Migration $version ... ";
         $sql = file_get_contents($path);
         if ($sql === false) {
-            throw new RuntimeException("Lecture impossible: $path");
+            throw new \RuntimeException("Lecture impossible: $path");
         }
         $pdo->exec($sql);
         $ins = $pdo->prepare("INSERT INTO schema_migrations(version) VALUES(:v)");
@@ -62,7 +62,7 @@ try {
     }
     $pdo->commit();
     echo "Toutes les migrations ont été appliquées.\n";
-} catch (Throwable $e) {
+} catch (\Throwable $e) {
     $pdo->rollBack();
     fwrite(STDERR, "ERREUR migration: " . $e->getMessage() . "\n");
     exit(1);
