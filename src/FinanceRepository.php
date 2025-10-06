@@ -147,7 +147,9 @@ class FinanceRepository
             $params[':a']=$accountId;
         }
         $sql = "
-          SELECT t.*, a.name AS account_name, c.name AS category_name
+          SELECT t.*,
+                 a.name AS account_name,
+                 c.name AS category_name
           FROM transactions t
           JOIN accounts a ON a.id=t.account_id AND a.user_id=t.user_id
           LEFT JOIN categories c ON c.id=t.category_id
@@ -157,5 +159,92 @@ class FinanceRepository
         $st = $this->pdo->prepare($sql);
         $st->execute($params);
         return $st->fetchAll() ?: [];
+    }
+
+    public function getTransactionById(int $userId, int $id): ?array
+    {
+        $st = $this->pdo->prepare("
+          SELECT t.*,
+                 a.name AS account_name,
+                 c.name AS category_name
+          FROM transactions t
+          JOIN accounts a ON a.id=t.account_id AND a.user_id=:u
+          LEFT JOIN categories c ON c.id=t.category_id
+          WHERE t.id=:id AND t.user_id=:u
+          LIMIT 1
+        ");
+        $st->execute([':id'=>$id, ':u'=>$userId]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        return $r ?: null;
+    }
+
+    public function updateTransaction(
+        int $userId,
+        int $id,
+        int $accountId,
+        string $date,
+        float $amount,
+        string $desc='',
+        ?int $categoryId=null,
+        ?string $notes=null
+    ): void {
+        // Existence + propriété de la transaction
+        $existing = $this->getTransactionById($userId, $id);
+        if (!$existing) {
+            throw new RuntimeException("Transaction introuvable.");
+        }
+
+        // Compte appartient à l'utilisateur
+        $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
+        $acc->execute([':a'=>$accountId, ':u'=>$userId]);
+        if (!$acc->fetchColumn()) {
+            throw new RuntimeException("Compte invalide.");
+        }
+
+        if ($categoryId !== null) {
+            $cat = $this->pdo->prepare("SELECT 1 FROM categories WHERE id=:c AND user_id=:u");
+            $cat->execute([':c'=>$categoryId, ':u'=>$userId]);
+            if (!$cat->fetchColumn()) {
+                throw new RuntimeException("Catégorie invalide.");
+            }
+        }
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)) {
+            throw new RuntimeException("Date invalide.");
+        }
+        if ($amount == 0.0) {
+            throw new RuntimeException("Montant nul interdit.");
+        }
+
+        $st = $this->pdo->prepare("
+          UPDATE transactions
+             SET account_id=:a,
+                 date=:d,
+                 description=:ds,
+                 amount=:amt,
+                 category_id=:cat,
+                 notes=:notes
+           WHERE id=:id AND user_id=:u
+        ");
+        $st->execute([
+            ':a'=>$accountId,
+            ':d'=>$date,
+            ':ds'=>$desc ?: null,
+            ':amt'=>$amount,
+            ':cat'=>$categoryId,
+            ':notes'=>$notes ?: null,
+            ':id'=>$id,
+            ':u'=>$userId
+        ]);
+        if ($st->rowCount() === 0) {
+            throw new RuntimeException("Mise à jour non effectuée.");
+        }
+    }
+
+    public function deleteTransaction(int $userId, int $id): void
+    {
+        $st = $this->pdo->prepare("DELETE FROM transactions WHERE id=:id AND user_id=:u");
+        $st->execute([':id'=>$id, ':u'=>$userId]);
+        // Pas d'erreur si déjà supprimé : silencieux
     }
 }
