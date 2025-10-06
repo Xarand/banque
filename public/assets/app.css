@@ -1,0 +1,152 @@
+/* Responsive & thème
+   -------------------------------------------------- */
+   :root {
+    --gap: .75rem;
+    --radius: .35rem;
+    --clr-bg: #f8f9fa;
+    --clr-panel: #ffffff;
+    --clr-border: #e2e6ea;
+    --clr-text-muted: #666;
+    --clr-positive: #157347;
+    --clr-negative: #b02a37;
+    --clr-accent: #0d6efd;
+    font-size: 16px;
+  }
+  
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --clr-bg: #1e1f22;
+      --clr-panel: #2a2d31;
+      --clr-border: #3a3e44;
+      --clr-text-muted: #9aa0a6;
+    }
+    body {
+      color: #e9ecef;
+    }
+    .card, .table, .form-control, .form-select, .btn-outline-secondary {
+      background-color: var(--clr-panel);
+      color: #e9ecef;
+    }
+    .table thead th {
+      color: #dee2e6;
+    }
+  }
+  
+  body {
+    background: var(--clr-bg);
+  }
+  
+  .navbar-brand {
+    font-weight: 600;
+    letter-spacing: .5px;
+  }
+  
+  .table td.amount {
+    font-variant-numeric: tabular-nums;
+  }
+  
+  /* Réduction de densité sur mobiles */
+  @media (max-width: 576px) {
+    .desktop-table-wrapper {
+      display: none;
+    }
+    .tx-cards {
+      display: grid;
+      gap: .6rem;
+    }
+    .tx-card {
+      background: var(--clr-panel);
+      border: 1px solid var(--clr-border);
+      padding: .55rem .7rem .6rem;
+      border-radius: var(--radius);
+      font-size: .82rem;
+      line-height: 1.2;
+      position: relative;
+    }
+    .tx-card .tx-amount {
+      font-weight: 600;
+    }
+    .tx-card .tx-actions {
+      position: absolute;
+      top: .4rem;
+      right: .4rem;
+      display: flex;
+      gap: .3rem;
+    }
+    .tx-badge {
+      font-size: .55rem;
+      padding: .2rem .35rem;
+      border-radius: .35rem;
+    }
+  }
+  
+  /* Sur ≥ md on cache les cartes */
+  @media (min-width: 577px) {
+    .tx-cards { display:none; }
+  }
+  
+  /* Bouton icône */
+  .btn-icon {
+    --size: 2rem;
+    width: var(--size);
+    height: var(--size);
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  
+  /* Sparklines */
+  .sparkline {
+    stroke-width:1.5;
+    fill:none;
+  }
+  
+  /* Tableau responsive – couper les notes longues */
+  .notes-cell {
+    max-width: 180px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.7rem;
+    color: var(--clr-text-muted);
+  }
+  
+  .badge-dir {
+    font-size: .65rem;
+    font-weight: 500;
+  }
+  
+  .summary-box {
+    background: var(--clr-panel);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius);
+    padding: .75rem .9rem;
+  }
+  
+  .summary-box h3 {
+    font-size: .85rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: .4rem;
+  }
+  
+  .flex-wrap-gap {
+    display:flex;
+    flex-wrap:wrap;
+    gap:.6rem;
+  }
+  
+  .category-bar {
+    height: .55rem;
+    border-radius: 2px;
+    background: linear-gradient(90deg,#0d6efd,#6f42c1);
+    opacity:.2;
+    margin-top:.2rem;
+  }
+  
+  .table-sm th, .table-sm td {
+    vertical-align: middle;
+  }
+  
