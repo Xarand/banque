@@ -3,38 +3,35 @@
 require __DIR__ . '/../vendor/autoload.php';
 
 use App\{Util, Database, UserRepository};
-use RuntimeException;
 
 Util::startSession();
-
-// Si déjà connecté, inutile d'afficher l'inscription
 if (Util::isAuthenticated()) {
     Util::redirect('index.php');
 }
 
-$db     = new Database();          // plus de ensureSchema()
+$db     = new Database();
 $users  = new UserRepository($db);
 $error  = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         Util::checkCsrf();
-
         $email       = strtolower(trim($_POST['email'] ?? ''));
         $displayName = trim($_POST['display_name'] ?? '');
         $password    = $_POST['password'] ?? '';
 
         if ($email === '' || $displayName === '' || $password === '') {
-            throw new RuntimeException("Tous les champs sont requis.");
+            throw new \RuntimeException("Tous les champs sont requis.");
         }
         if (strlen($password) < 8) {
-            throw new RuntimeException("Mot de passe trop court (min 8).");
+            throw new \RuntimeException("Mot de passe trop court (min 8).");
         }
 
         $userId = $users->create($email, $displayName, $password);
-        Util::loginUserId($userId);
+        Util::regenerateSessionId();
+        $_SESSION['user_id'] = $userId;
         Util::redirect('index.php');
-    } catch (Throwable $e) {
+    } catch (\Throwable $e) {
         $error = $e->getMessage();
     }
 }

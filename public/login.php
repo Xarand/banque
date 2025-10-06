@@ -3,18 +3,18 @@
 require __DIR__ . '/../vendor/autoload.php';
 
 use App\{Util, Database, UserRepository};
-use RuntimeException;
+// (Pas besoin de "use RuntimeException;" ici)
 
 Util::startSession();
 
-// Redirige si déjà authentifié
+// Si déjà connecté
 if (Util::isAuthenticated()) {
     Util::redirect('index.php');
 }
 
-$db       = new Database();          // plus de ensureSchema()
-$users    = new UserRepository($db);
-$error    = null;
+$db     = new Database();
+$users  = new UserRepository($db);
+$error  = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -24,17 +24,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password = $_POST['password'] ?? '';
 
         if ($email === '' || $password === '') {
-            throw new RuntimeException("Email et mot de passe requis.");
+            throw new \RuntimeException("Email et mot de passe requis.");
         }
 
         $user = $users->findByEmail($email);
         if (!$user || !password_verify($password, $user['password_hash'])) {
-            throw new RuntimeException("Identifiants invalides.");
+            throw new \RuntimeException("Identifiants invalides.");
         }
 
-        Util::loginUserId((int)$user['id']);
+        Util::regenerateSessionId();
+        $_SESSION['user_id'] = (int)$user['id'];
         Util::redirect('index.php');
-    } catch (Throwable $e) {
+    } catch (\Throwable $e) {
         $error = $e->getMessage();
     }
 }

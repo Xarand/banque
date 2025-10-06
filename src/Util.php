@@ -22,6 +22,12 @@ class Util
         return isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
     }
 
+    // Ajout (nouvelle méthode)
+    public static function isAuthenticated(): bool
+    {
+        return self::currentUserId() !== null;
+    }
+
     public static function requireAuth(): void
     {
         self::startSession();
@@ -72,6 +78,7 @@ class Util
         self::startSession();
         $_SESSION['_flashes'][] = ['type'=>$type, 'msg'=>$msg];
     }
+
     public static function takeFlashes(): array
     {
         self::startSession();
