@@ -7,7 +7,7 @@ use App\{Util,Database,FinanceRepository};
 Util::startSession();
 Util::requireAuth();
 
-$db   = new Database();
+$db = new Database();
 $db->ensureSchema(__DIR__.'/../schema.sql');
 $repo = new FinanceRepository($db);
 $userId = Util::currentUserId();
@@ -15,26 +15,26 @@ $userId = Util::currentUserId();
 $errorAccount = null;
 $errorTx = null;
 
-/* Création d'un compte */
+/* Création compte */
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='account') {
     try {
         Util::checkCsrf();
         $repo->createAccount($userId, $_POST['name'] ?? '');
         Util::addFlash('success','Compte créé.');
         Util::redirect('index.php');
-    } catch(Throwable $e){
+    } catch(Throwable $e) {
         $errorAccount = $e->getMessage();
     }
 }
 
-/* Création d'une catégorie */
+/* Création catégorie */
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='category') {
     try {
         Util::checkCsrf();
         $repo->createCategory($userId, $_POST['cat_name'] ?? '');
         Util::addFlash('success','Catégorie créée.');
         Util::redirect('index.php');
-    } catch(Throwable $e){
+    } catch(Throwable $e) {
         $errorAccount = $e->getMessage();
     }
 }
@@ -44,35 +44,34 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='tx') {
     try {
         Util::checkCsrf();
         $accountId = (int)($_POST['account_id'] ?? 0);
-        $date      = trim($_POST['date'] ?? '');
-        $desc      = trim($_POST['description'] ?? '');
-        $rawAmount = str_replace(',','.', trim($_POST['amount'] ?? ''));
-        $categoryId = isset($_POST['category_id']) && $_POST['category_id'] !== '' ? (int)$_POST['category_id'] : null;
-
-        if ($date==='') $date = date('Y-m-d');
+        $date = trim($_POST['date'] ?? '');
+        if ($date === '') $date = date('Y-m-d');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)) {
-            throw new RuntimeException("Date invalide (YYYY-MM-DD).");
+            throw new RuntimeException("Date invalide.");
         }
+        $rawAmount = str_replace(',','.', trim($_POST['amount'] ?? ''));
         if (!is_numeric($rawAmount)) {
             throw new RuntimeException("Montant invalide.");
         }
         $amount = (float)$rawAmount;
         if ($amount == 0.0) {
-            throw new RuntimeException("Montant ne peut pas être 0.");
+            throw new RuntimeException("Montant nul interdit.");
         }
+        $desc = trim($_POST['description'] ?? '');
+        $categoryId = isset($_POST['category_id']) && $_POST['category_id'] !== '' ? (int)$_POST['category_id'] : null;
 
         $repo->addTransaction($userId,$accountId,$date,$amount,$desc,$categoryId);
         Util::addFlash('success','Transaction ajoutée.');
         Util::redirect('index.php');
-    } catch(Throwable $e){
+    } catch(Throwable $e) {
         $errorTx = $e->getMessage();
     }
 }
 
-$accounts    = $repo->listAccounts($userId);
-$categories  = $repo->listCategories($userId);
+$accounts   = $repo->listAccounts($userId);
+$categories = $repo->listCategories($userId);
 
-/* Récup transactions récentes */
+/* Transactions récentes */
 $pdo = $db->pdo();
 $txStmt = $pdo->prepare("
   SELECT t.id,t.date,t.description,t.amount,
@@ -83,7 +82,7 @@ $txStmt = $pdo->prepare("
   LEFT JOIN categories c ON c.id=t.category_id
   WHERE t.user_id=:u
   ORDER BY date(t.date) DESC, t.id DESC
-  LIMIT 20
+  LIMIT 30
 ");
 $txStmt->execute([':u'=>$userId]);
 $transactions = $txStmt->fetchAll();
@@ -94,7 +93,7 @@ $transactions = $txStmt->fetchAll();
 <meta charset="utf-8">
 <title>Tableau de bord</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
 table td.amount { text-align:right; }
 </style>
@@ -108,11 +107,10 @@ table td.amount { text-align:right; }
   </div>
 
   <?php foreach(App\Util::takeFlashes() as $fl): ?>
-    <div class="alert alert-<?= App\Util::h($fl['type']) ?> py-2 mb-3"><?= App\Util::h($fl['msg']) ?></div>
+    <div class="alert alert-<?= App\Util::h($fl['type']) ?> py-2 mb-2"><?= App\Util::h($fl['msg']) ?></div>
   <?php endforeach; ?>
 
   <div class="row g-4">
-    <!-- Colonne gauche : Comptes & Catégories -->
     <div class="col-md-6">
       <div class="card shadow-sm mb-3">
         <div class="card-header py-2"><strong>Comptes</strong></div>
@@ -172,21 +170,20 @@ table td.amount { text-align:right; }
       </div>
     </div>
 
-    <!-- Colonne droite : Transactions -->
     <div class="col-md-6">
       <div class="card shadow-sm mb-3">
         <div class="card-header py-2"><strong>Nouvelle transaction</strong></div>
         <div class="card-body">
           <?php if($errorTx): ?><div class="alert alert-danger py-1 mb-2"><?= App\Util::h($errorTx) ?></div><?php endif; ?>
           <?php if(!$accounts): ?>
-            <p class="text-muted mb-0"><em>Crée d’abord un compte.</em></p>
+            <p class="text-muted mb-0"><em>Crée d'abord un compte.</em></p>
           <?php else: ?>
           <form method="post" class="row g-2">
             <?= App\Util::csrfInput() ?>
             <input type="hidden" name="form" value="tx">
             <div class="col-6">
               <label class="form-label mb-0">Compte</label>
-              <select name="account_id" class="form-select form-select-sm" required>
+              <select name="account_id" class="form-select form-select-sm">
                 <?php foreach($accounts as $a): ?>
                   <option value="<?= (int)$a['id'] ?>"><?= App\Util::h($a['name']) ?></option>
                 <?php endforeach; ?>

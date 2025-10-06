@@ -18,22 +18,22 @@ class FinanceRepository
     /* =========================
        Comptes
        ========================= */
-    public function createAccount(int $userId, string $name, string $currency='EUR', string $type=null, float $initial=0.0): int
+    public function createAccount(int $userId, string $name, string $currency='EUR', ?string $type=null, float $initial=0.0): int
     {
         $name = trim($name);
         if ($name === '') {
-            throw new RuntimeException("Nom requis.");
+            throw new RuntimeException("Nom de compte requis.");
         }
-        $st = $this->pdo->prepare("SELECT 1 FROM accounts WHERE user_id=:u AND lower(name)=lower(:n)");
-        $st->execute([':u'=>$userId, ':n'=>$name]);
-        if ($st->fetchColumn()) {
-            throw new RuntimeException("Nom déjà utilisé.");
+        $check = $this->pdo->prepare("SELECT 1 FROM accounts WHERE user_id=:u AND lower(name)=lower(:n)");
+        $check->execute([':u'=>$userId, ':n'=>$name]);
+        if ($check->fetchColumn()) {
+            throw new RuntimeException("Ce nom de compte existe déjà.");
         }
-        $ins = $this->pdo->prepare("
+        $stmt = $this->pdo->prepare("
           INSERT INTO accounts(user_id,name,type,currency,initial_balance)
           VALUES(:u,:n,:t,:c,:b)
         ");
-        $ins->execute([
+        $stmt->execute([
             ':u'=>$userId,
             ':n'=>$name,
             ':t'=>$type,
@@ -48,13 +48,50 @@ class FinanceRepository
         $sql = "
           SELECT a.*,
                  (a.initial_balance + COALESCE(
-                   (SELECT SUM(amount) FROM transactions t WHERE t.account_id=a.id AND t.user_id=:u),0
-                 )) AS current_balance
+                   (SELECT SUM(amount)
+                      FROM transactions t
+                      WHERE t.account_id=a.id
+                        AND t.user_id=:u),0)
+                 ) AS current_balance
           FROM accounts a
           WHERE a.user_id=:u
           ORDER BY a.name COLLATE NOCASE ASC
         ";
         $st = $this->pdo->prepare($sql);
+        $st->execute([':u'=>$userId]);
+        return $st->fetchAll() ?: [];
+    }
+
+    /* =========================
+       Catégories
+       ========================= */
+    public function createCategory(int $userId, string $name, ?string $type=null): int
+    {
+        $name = trim($name);
+        if ($name === '') {
+            throw new RuntimeException("Nom de catégorie requis.");
+        }
+        $check = $this->pdo->prepare("SELECT 1 FROM categories WHERE user_id=:u AND lower(name)=lower(:n)");
+        $check->execute([':u'=>$userId, ':n'=>$name]);
+        if ($check->fetchColumn()) {
+            throw new RuntimeException("Catégorie déjà existante.");
+        }
+        $st = $this->pdo->prepare("
+          INSERT INTO categories(user_id,name,type)
+          VALUES(:u,:n,:t)
+        ");
+        $st->execute([':u'=>$userId, ':n'=>$name, ':t'=>$type]);
+        return (int)$this->pdo->lastInsertId();
+    }
+
+    public function listCategories(int $userId): array
+    {
+        $st = $this->pdo->prepare("
+          SELECT id,name,type
+          FROM categories
+          WHERE user_id=:u
+          ORDER BY name COLLATE NOCASE
+        ");
         $st->execute([':u'=>$userId]);
         return $st->fetchAll() ?: [];
     }
@@ -68,18 +105,18 @@ class FinanceRepository
         string $date,
         float $amount,
         string $desc='',
-        ?int $categoryId = null
+        ?int $categoryId=null
     ): int {
-        $chk = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
-        $chk->execute([':a'=>$accountId, ':u'=>$userId]);
-        if (!$chk->fetchColumn()) {
-            throw new RuntimeException("Compte introuvable ou interdit.");
+        $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
+        $acc->execute([':a'=>$accountId, ':u'=>$userId]);
+        if (!$acc->fetchColumn()) {
+            throw new RuntimeException("Compte introuvable.");
         }
 
         if ($categoryId !== null) {
-            $ckc = $this->pdo->prepare("SELECT 1 FROM categories WHERE id=:c AND user_id=:u");
-            $ckc->execute([':c'=>$categoryId, ':u'=>$userId]);
-            if (!$ckc->fetchColumn()) {
+            $cat = $this->pdo->prepare("SELECT 1 FROM categories WHERE id=:c AND user_id=:u");
+            $cat->execute([':c'=>$categoryId, ':u'=>$userId]);
+            if (!$cat->fetchColumn()) {
                 throw new RuntimeException("Catégorie invalide.");
             }
         }
@@ -117,40 +154,6 @@ class FinanceRepository
         ";
         $st = $this->pdo->prepare($sql);
         $st->execute($params);
-        return $st->fetchAll() ?: [];
-    }
-
-    /* =========================
-       Catégories
-       ========================= */
-    public function createCategory(int $userId, string $name, ?string $type=null): int
-    {
-        $name = trim($name);
-        if ($name==='') {
-            throw new RuntimeException("Nom de catégorie requis.");
-        }
-        $st = $this->pdo->prepare("SELECT 1 FROM categories WHERE user_id=:u AND lower(name)=lower(:n)");
-        $st->execute([':u'=>$userId, ':n'=>$name]);
-        if ($st->fetchColumn()) {
-            throw new RuntimeException("Catégorie déjà existante.");
-        }
-        $ins = $this->pdo->prepare("
-          INSERT INTO categories(user_id,name,type)
-          VALUES(:u,:n,:t)
-        ");
-        $ins->execute([':u'=>$userId, ':n'=>$name, ':t'=>$type]);
-        return (int)$this->pdo->lastInsertId();
-    }
-
-    public function listCategories(int $userId): array
-    {
-        $st = $this->pdo->prepare("
-          SELECT id,name,type
-          FROM categories
-          WHERE user_id=:u
-          ORDER BY name COLLATE NOCASE
-        ");
-        $st->execute([':u'=>$userId]);
         return $st->fetchAll() ?: [];
     }
 }
