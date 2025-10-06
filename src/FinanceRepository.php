@@ -105,7 +105,8 @@ class FinanceRepository
         string $date,
         float $amount,
         string $desc='',
-        ?int $categoryId=null
+        ?int $categoryId=null,
+        ?string $notes=null
     ): int {
         $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
         $acc->execute([':a'=>$accountId, ':u'=>$userId]);
@@ -122,8 +123,8 @@ class FinanceRepository
         }
 
         $st = $this->pdo->prepare("
-          INSERT INTO transactions(user_id,account_id,date,description,amount,category_id)
-          VALUES(:u,:a,:d,:ds,:amt,:cat)
+          INSERT INTO transactions(user_id,account_id,date,description,amount,category_id,notes)
+          VALUES(:u,:a,:d,:ds,:amt,:cat,:notes)
         ");
         $st->execute([
             ':u'=>$userId,
@@ -131,7 +132,8 @@ class FinanceRepository
             ':d'=>$date,
             ':ds'=>$desc ?: null,
             ':amt'=>$amount,
-            ':cat'=>$categoryId
+            ':cat'=>$categoryId,
+            ':notes'=>$notes ?: null
         ]);
         return (int)$this->pdo->lastInsertId();
     }

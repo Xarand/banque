@@ -57,9 +57,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='tx') {
             throw new RuntimeException("Montant nul interdit.");
         }
         $desc = trim($_POST['description'] ?? '');
+        $notes = trim($_POST['notes'] ?? '');
         $categoryId = isset($_POST['category_id']) && $_POST['category_id'] !== '' ? (int)$_POST['category_id'] : null;
 
-        $repo->addTransaction($userId,$accountId,$date,$amount,$desc,$categoryId);
+        $repo->addTransaction($userId,$accountId,$date,$amount,$desc,$categoryId,$notes);
         Util::addFlash('success','Transaction ajoutée.');
         Util::redirect('index.php');
     } catch(Throwable $e) {
@@ -70,10 +71,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='tx') {
 $accounts   = $repo->listAccounts($userId);
 $categories = $repo->listCategories($userId);
 
-/* Transactions récentes */
+/* Transactions récentes (avec notes) */
 $pdo = $db->pdo();
 $txStmt = $pdo->prepare("
-  SELECT t.id,t.date,t.description,t.amount,
+  SELECT t.id,t.date,t.description,t.amount,t.notes,
          a.name AS account,
          c.name AS category
   FROM transactions t
@@ -95,6 +96,7 @@ $transactions = $txStmt->fetchAll();
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
 table td.amount { text-align:right; }
+td.notes-cell { max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:0.75rem; color:#555; }
 </style>
 </head>
 <body class="bg-light">
@@ -212,6 +214,10 @@ table td.amount { text-align:right; }
               <input type="text" name="description" class="form-control form-control-sm">
             </div>
             <div class="col-12">
+              <label class="form-label mb-0">Notes</label>
+              <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="Détails internes, référence facture..."></textarea>
+            </div>
+            <div class="col-12">
               <button class="btn btn-success btn-sm">Ajouter</button>
             </div>
           </form>
@@ -229,6 +235,7 @@ table td.amount { text-align:right; }
                 <th>Compte</th>
                 <th>Cat</th>
                 <th>Description</th>
+                <th class="notes-cell">Notes</th>
                 <th class="text-end" style="width:120px;">Montant</th>
               </tr>
             </thead>
@@ -239,13 +246,16 @@ table td.amount { text-align:right; }
                 <td><?= App\Util::h($t['account']) ?></td>
                 <td><?= $t['category'] ? App\Util::h($t['category']) : '' ?></td>
                 <td><?= App\Util::h($t['description'] ?? '') ?></td>
+                <td class="notes-cell" title="<?= App\Util::h($t['notes'] ?? '') ?>">
+                  <?= App\Util::h(mb_strimwidth((string)($t['notes'] ?? ''),0,40,'…','UTF-8')) ?>
+                </td>
                 <td class="text-end <?= $t['amount']<0?'text-danger':'text-success' ?>">
                   <?= number_format((float)$t['amount'],2,',',' ') ?> €
                 </td>
               </tr>
             <?php endforeach; ?>
             <?php if(!$transactions): ?>
-              <tr><td colspan="5"><em>Aucune transaction</em></td></tr>
+              <tr><td colspan="6"><em>Aucune transaction</em></td></tr>
             <?php endif; ?>
             </tbody>
           </table>
