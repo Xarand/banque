@@ -3,7 +3,6 @@
 require __DIR__ . '/../vendor/autoload.php';
 
 use App\{Util, Database, FinanceRepository};
-use RuntimeException;
 
 Util::startSession();
 Util::requireAuth();
