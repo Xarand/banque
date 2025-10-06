@@ -71,6 +71,9 @@ class FinanceRepository
         if ($name === '') {
             throw new RuntimeException("Nom de catégorie requis.");
         }
+        if ($type !== null && !in_array($type, ['income','expense'], true)) {
+            $type = null; // Sécurise contre des valeurs arbitraires
+        }
         $check = $this->pdo->prepare("SELECT 1 FROM categories WHERE user_id=:u AND lower(name)=lower(:n)");
         $check->execute([':u'=>$userId, ':n'=>$name]);
         if ($check->fetchColumn()) {
@@ -99,6 +102,10 @@ class FinanceRepository
     /* =========================
        Transactions (CRUD)
        ========================= */
+
+    /**
+     * @param string|null $direction 'credit'|'debit'|null (utilisé si pas de catégorie ou catégorie sans type)
+     */
     public function addTransaction(
         int $userId,
         int $accountId,
@@ -106,7 +113,8 @@ class FinanceRepository
         float $amount,
         string $desc='',
         ?int $categoryId=null,
-        ?string $notes=null
+        ?string $notes=null,
+        ?string $direction=null
     ): int {
         $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
         $acc->execute([':a'=>$accountId, ':u'=>$userId]);
@@ -114,11 +122,16 @@ class FinanceRepository
             throw new RuntimeException("Compte introuvable.");
         }
 
+        $catType = null;
         if ($categoryId !== null) {
-            $cat = $this->pdo->prepare("SELECT 1 FROM categories WHERE id=:c AND user_id=:u");
+            $cat = $this->pdo->prepare("SELECT type FROM categories WHERE id=:c AND user_id=:u");
             $cat->execute([':c'=>$categoryId, ':u'=>$userId]);
-            if (!$cat->fetchColumn()) {
+            $catType = $cat->fetchColumn();
+            if ($catType === false) {
                 throw new RuntimeException("Catégorie invalide.");
+            }
+            if (!in_array($catType, ['income','expense',null], true)) {
+                $catType = null;
             }
         }
 
@@ -127,6 +140,24 @@ class FinanceRepository
         }
         if ($amount == 0.0) {
             throw new RuntimeException("Montant nul interdit.");
+        }
+
+        $normalized = abs($amount);
+
+        if ($catType === 'expense') {
+            $normalized = -$normalized;
+        } elseif ($catType === 'income') {
+            // reste positif
+        } else {
+            // Pas de type de catégorie => utiliser direction
+            if ($direction === 'debit' && $normalized > 0) {
+                $normalized = -$normalized;
+            } elseif ($direction === 'credit' && $normalized < 0) {
+                $normalized = abs($normalized);
+            } elseif ($direction === null) {
+                // si rien fourni, on garde le signe que l'utilisateur a entré
+                $normalized = $amount;
+            }
         }
 
         $st = $this->pdo->prepare("
@@ -138,34 +169,11 @@ class FinanceRepository
             ':a'=>$accountId,
             ':d'=>$date,
             ':ds'=>$desc ?: null,
-            ':amt'=>$amount,
+            ':amt'=>$normalized,
             ':cat'=>$categoryId,
             ':notes'=>$notes ?: null
         ]);
         return (int)$this->pdo->lastInsertId();
-    }
-
-    public function listTransactions(int $userId, ?int $accountId=null): array
-    {
-        $where = "t.user_id=:u";
-        $params = [':u'=>$userId];
-        if ($accountId) {
-            $where .= " AND t.account_id=:a";
-            $params[':a']=$accountId;
-        }
-        $sql = "
-          SELECT t.*,
-                 a.name AS account_name,
-                 c.name AS category_name
-          FROM transactions t
-          JOIN accounts a ON a.id=t.account_id AND a.user_id=t.user_id
-          LEFT JOIN categories c ON c.id=t.category_id
-          WHERE $where
-          ORDER BY date(t.date) DESC, t.id DESC
-        ";
-        $st = $this->pdo->prepare($sql);
-        $st->execute($params);
-        return $st->fetchAll() ?: [];
     }
 
     public function getTransactionById(int $userId, int $id): ?array
@@ -173,7 +181,8 @@ class FinanceRepository
         $st = $this->pdo->prepare("
           SELECT t.*,
                  a.name AS account_name,
-                 c.name AS category_name
+                 c.name AS category_name,
+                 c.type AS category_type
           FROM transactions t
           JOIN accounts a ON a.id=t.account_id AND a.user_id=:u
           LEFT JOIN categories c ON c.id=t.category_id
@@ -185,6 +194,9 @@ class FinanceRepository
         return $r ?: null;
     }
 
+    /**
+     * @param string|null $direction 'credit'|'debit'|null (utilisé si pas de catégorie ou catégorie sans type)
+     */
     public function updateTransaction(
         int $userId,
         int $id,
@@ -193,7 +205,8 @@ class FinanceRepository
         float $amount,
         string $desc='',
         ?int $categoryId=null,
-        ?string $notes=null
+        ?string $notes=null,
+        ?string $direction=null
     ): void {
         $existing = $this->getTransactionById($userId, $id);
         if (!$existing) {
@@ -206,11 +219,16 @@ class FinanceRepository
             throw new RuntimeException("Compte invalide.");
         }
 
+        $catType = null;
         if ($categoryId !== null) {
-            $cat = $this->pdo->prepare("SELECT 1 FROM categories WHERE id=:c AND user_id=:u");
+            $cat = $this->pdo->prepare("SELECT type FROM categories WHERE id=:c AND user_id=:u");
             $cat->execute([':c'=>$categoryId, ':u'=>$userId]);
-            if (!$cat->fetchColumn()) {
+            $catType = $cat->fetchColumn();
+            if ($catType === false) {
                 throw new RuntimeException("Catégorie invalide.");
+            }
+            if (!in_array($catType, ['income','expense',null], true)) {
+                $catType = null;
             }
         }
 
@@ -219,6 +237,23 @@ class FinanceRepository
         }
         if ($amount == 0.0) {
             throw new RuntimeException("Montant nul interdit.");
+        }
+
+        $normalized = abs($amount);
+
+        if ($catType === 'expense') {
+            $normalized = -$normalized;
+        } elseif ($catType === 'income') {
+            // positif
+        } else {
+            if ($direction === 'debit') {
+                $normalized = -$normalized;
+            } elseif ($direction === 'credit') {
+                $normalized = +$normalized;
+            } else {
+                // pas de direction fournie -> garder signe original
+                $normalized = $amount;
+            }
         }
 
         $st = $this->pdo->prepare("
@@ -235,7 +270,7 @@ class FinanceRepository
             ':a'=>$accountId,
             ':d'=>$date,
             ':ds'=>$desc ?: null,
-            ':amt'=>$amount,
+            ':amt'=>$normalized,
             ':cat'=>$categoryId,
             ':notes'=>$notes ?: null,
             ':id'=>$id,
@@ -284,7 +319,7 @@ class FinanceRepository
 
         $sql = "
           SELECT t.id, t.date, t.description, t.amount, t.notes,
-                 a.name AS account, c.name AS category
+                 a.name AS account, c.name AS category, c.type AS category_type
           FROM transactions t
           JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
           LEFT JOIN categories c ON c.id = t.category_id

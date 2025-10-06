@@ -46,7 +46,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='account') {
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='category') {
     try {
         Util::checkCsrf();
-        $repo->createCategory($userId, $_POST['cat_name'] ?? '');
+        $type = $_POST['cat_type'] ?? null;
+        if ($type === '') $type = null;
+        $repo->createCategory($userId, $_POST['cat_name'] ?? '', $type);
         Util::addFlash('success','Catégorie créée.');
         Util::redirect('index.php');
     } catch(Throwable $e) {
@@ -75,8 +77,21 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form'] ?? '')==='tx') {
         $desc = trim($_POST['description'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
         $categoryId = isset($_POST['category_id']) && $_POST['category_id'] !== '' ? (int)$_POST['category_id'] : null;
+        $direction = $_POST['direction'] ?? null;
+        if ($direction !== null && !in_array($direction, ['credit','debit'], true)) {
+            $direction = null;
+        }
 
-        $repo->addTransaction($userId,$accountId,$date,$amount,$desc,$categoryId,$notes);
+        $repo->addTransaction(
+            $userId,
+            $accountId,
+            $date,
+            $amount,
+            $desc,
+            $categoryId,
+            $notes,
+            $direction
+        );
         Util::addFlash('success','Transaction ajoutée.');
         Util::redirect('index.php');
     } catch(Throwable $e) {
@@ -93,13 +108,10 @@ $filterCategoryId = isset($_GET['category_id']) && $_GET['category_id'] !== '' ?
 $dateFrom = isset($_GET['date_from']) ? trim($_GET['date_from']) : '';
 $dateTo   = isset($_GET['date_to']) ? trim($_GET['date_to']) : '';
 
-$validDate = function(string $d): bool {
-    return $d === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $d);
-};
+$validDate = fn(string $d): bool => $d === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $d);
 if (!$validDate($dateFrom)) $dateFrom = '';
 if (!$validDate($dateTo))   $dateTo = '';
 
-// Validation appartenance compte
 if ($filterAccountId) {
     $found = false;
     foreach ($accounts as $a) {
@@ -107,7 +119,6 @@ if ($filterAccountId) {
     }
     if (!$found) $filterAccountId = null;
 }
-// Validation appartenance catégorie
 if ($filterCategoryId) {
     $found = false;
     foreach ($categories as $c) {
@@ -139,12 +150,39 @@ $txSum   = $search['sum'];
 table td.amount { text-align:right; }
 td.notes-cell { max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:0.75rem; color:#555; }
 .actions-col { white-space:nowrap; }
+.badge-dir { font-size:0.65rem; }
 </style>
 <script>
 function confirmDelete(form){
   if(confirm('Supprimer cette transaction ?')) { form.submit(); }
   return false;
 }
+document.addEventListener('DOMContentLoaded', () => {
+  const catSelect = document.querySelector('select[name="category_id"]');
+  const dirRadios = document.querySelectorAll('input[name="direction"]');
+  const dirWrapper = document.getElementById('direction-wrapper');
+  const infoAuto = document.getElementById('direction-auto-info');
+
+  function updateDirectionState() {
+    if(!catSelect) return;
+    const opt = catSelect.options[catSelect.selectedIndex];
+    const type = opt ? opt.getAttribute('data-type') : '';
+    if (type === 'income' || type === 'expense') {
+      dirRadios.forEach(r => { r.disabled = true; r.classList.add('disabled'); });
+      infoAuto.textContent = type === 'income'
+        ? "Catégorie revenu : montant forcé en Crédit."
+        : "Catégorie dépense : montant forcé en Débit.";
+      infoAuto.classList.remove('d-none');
+    } else {
+      dirRadios.forEach(r => { r.disabled = false; r.classList.remove('disabled'); });
+      infoAuto.classList.add('d-none');
+    }
+  }
+  if (catSelect) {
+    catSelect.addEventListener('change', updateDirectionState);
+    updateDirectionState();
+  }
+});
 </script>
 </head>
 <body class="bg-light">
@@ -181,6 +219,13 @@ function confirmDelete(form){
         <div class="mb-2">
           <input name="cat_name" class="form-control form-control-sm" placeholder="Nom catégorie" required>
         </div>
+        <div class="mb-2">
+          <select name="cat_type" class="form-select form-select-sm">
+            <option value="">(Sans type)</option>
+            <option value="income">Revenu</option>
+            <option value="expense">Dépense</option>
+          </select>
+        </div>
         <button class="btn btn-sm btn-primary">Créer</button>
       </form>
 
@@ -210,9 +255,27 @@ function confirmDelete(form){
           <select name="category_id" class="form-select form-select-sm">
             <option value="">(Aucune)</option>
             <?php foreach($categories as $c): ?>
-              <option value="<?= (int)$c['id'] ?>"><?= App\Util::h($c['name']) ?></option>
+              <option value="<?= (int)$c['id'] ?>"
+                      data-type="<?= App\Util::h($c['type'] ?? '') ?>">
+                <?= App\Util::h($c['name']) ?>
+                <?= $c['type']==='income' ? ' (Revenu)' : ($c['type']==='expense' ? ' (Dépense)' : '') ?>
+              </option>
             <?php endforeach; ?>
           </select>
+        </div>
+        <div class="mb-2" id="direction-wrapper">
+          <label class="form-label mb-1 d-block">Sens (si pas de catégorie typée)</label>
+          <div class="d-flex gap-3">
+            <label class="form-check">
+              <input type="radio" name="direction" value="credit" class="form-check-input" checked>
+              Crédit
+            </label>
+            <label class="form-check">
+              <input type="radio" name="direction" value="debit" class="form-check-input">
+              Débit
+            </label>
+          </div>
+          <div id="direction-auto-info" class="small text-muted mt-1 d-none"></div>
         </div>
         <div class="mb-2">
           <label class="form-label mb-1">Description</label>
@@ -282,6 +345,7 @@ function confirmDelete(form){
               <th>Date</th>
               <th>Compte</th>
               <th>Catégorie</th>
+              <th>Type</th>
               <th>Description</th>
               <th class="text-end">Montant</th>
               <th>Notes</th>
@@ -294,6 +358,13 @@ function confirmDelete(form){
               <td><?= App\Util::h($t['date']) ?></td>
               <td><?= App\Util::h($t['account']) ?></td>
               <td><?= App\Util::h($t['category'] ?? '') ?></td>
+              <td>
+                <?php if ($t['amount'] >= 0): ?>
+                  <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle badge-dir">Crédit</span>
+                <?php else: ?>
+                  <span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle badge-dir">Débit</span>
+                <?php endif; ?>
+              </td>
               <td><?= App\Util::h($t['description'] ?? '') ?></td>
               <td class="amount <?= $t['amount'] < 0 ? 'text-danger':'text-success' ?>">
                 <?= number_format($t['amount'], 2, ',', ' ') ?>
@@ -313,7 +384,7 @@ function confirmDelete(form){
             </tr>
           <?php endforeach; ?>
           <?php if (!$transactions): ?>
-            <tr><td colspan="7" class="text-muted">Aucune transaction.</td></tr>
+            <tr><td colspan="8" class="text-muted">Aucune transaction.</td></tr>
           <?php endif; ?>
           </tbody>
         </table>
