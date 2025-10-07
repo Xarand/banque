@@ -14,7 +14,9 @@ $userId    = Util::currentUserId();
 $errorAccount = null;
 $errorTx      = null;
 
-/* Suppression transaction */
+/* =========================
+   Suppression transaction
+   ========================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'delete_tx') {
     try {
         Util::checkCsrf();
@@ -30,7 +32,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'delete_
     }
 }
 
-/* Création compte */
+/* =========================
+   Création compte
+   ========================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'account') {
     try {
         Util::checkCsrf();
@@ -42,7 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'account
     }
 }
 
-/* Création catégorie */
+/* =========================
+   Création catégorie
+   ========================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'category') {
     try {
         Util::checkCsrf();
@@ -56,7 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'categor
     }
 }
 
-/* Ajout transaction */
+/* =========================
+   Ajout transaction
+   ========================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'tx') {
     try {
         Util::checkCsrf();
@@ -102,10 +110,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'tx') {
     }
 }
 
+/* =========================
+   Données de base
+   ========================= */
 $accounts   = $repo->listAccounts($userId);
 $categories = $repo->listCategories($userId);
 
-/* Filtres */
+/* Total de tous les comptes */
+$totalAll = 0.0;
+foreach ($accounts as $a) {
+    $totalAll += (float)$a['current_balance'];
+}
+
+/* =========================
+   Filtres
+   ========================= */
 $filterAccountId  = isset($_GET['account_id']) && $_GET['account_id'] !== '' ? (int)$_GET['account_id'] : null;
 $filterCategoryId = isset($_GET['category_id']) && $_GET['category_id'] !== '' ? (int)$_GET['category_id'] : null;
 $dateFrom         = isset($_GET['date_from']) ? trim($_GET['date_from']) : '';
@@ -144,7 +163,7 @@ $txSum        = $search['sum'];
 
 function h(string $v): string { return App\Util::h($v); }
 
-/* URL Export CSV */
+/* URL export CSV */
 $query = [];
 if ($filterAccountId !== null)  $query['account_id']  = $filterAccountId;
 if ($filterCategoryId !== null) $query['category_id'] = $filterCategoryId;
@@ -178,6 +197,7 @@ $exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '')
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link active" href="index.php">Tableau</a></li>
         <li class="nav-item"><a class="nav-link" href="reports.php">Rapports</a></li>
+        <li class="nav-item"><a class="nav-link" href="micro_index.php">Micro</a></li>
       </ul>
       <a href="logout.php" class="btn btn-sm btn-outline-light">Déconnexion</a>
     </div>
@@ -292,6 +312,20 @@ $exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '')
     <div class="col-lg-8 col-md-7">
       <h2 class="h6 mt-2">Transactions (filtrées)</h2>
 
+      <!-- Total tous comptes -->
+      <div class="alert alert-info py-2 mb-3">
+        Total de tous les comptes :
+        <strong><?= number_format($totalAll, 2, ',', ' ') ?> €</strong>
+        <div class="small text-muted mb-2">
+  <?php foreach($accounts as $acc): ?>
+    <?php if(!empty($acc['micro_enterprise_id'])): ?>
+      <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle me-1">
+        <?= h($acc['name']) ?> (Micro)
+      </span>
+    <?php endif; ?>
+  <?php endforeach; ?>
+</div>
+
       <!-- Formulaire filtres -->
       <form method="get" class="row g-2 align-items-end mb-2">
         <div class="col-6 col-sm-3">
@@ -332,7 +366,7 @@ $exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '')
         </div>
       </form>
 
-      <!-- Bouton Export -->
+      <!-- Export CSV -->
       <div class="mb-3">
         <a href="<?= h($exportUrl) ?>" class="btn btn-sm btn-outline-success">
           Exporter CSV (transactions filtrées)
@@ -346,7 +380,7 @@ $exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '')
         </strong>
       </div>
 
-      <!-- Vue cartes mobile -->
+      <!-- Vue cartes (mobile) -->
       <div class="tx-cards">
         <?php foreach($transactions as $t): ?>
           <div class="tx-card">
@@ -382,8 +416,7 @@ $exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '')
               <div class="text-muted" style="font-size:.7rem;"><?= h($t['notes']) ?></div>
             <?php endif; ?>
           </div>
-        <?php endforeach; ?>
-        <?php if (!$transactions): ?>
+        <?php endforeach; if(!$transactions): ?>
           <div class="text-muted">Aucune transaction.</div>
         <?php endif; ?>
       </div>
@@ -436,8 +469,7 @@ $exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '')
                   </form>
                 </td>
               </tr>
-            <?php endforeach; ?>
-            <?php if(!$transactions): ?>
+            <?php endforeach; if(!$transactions): ?>
               <tr><td colspan="8" class="text-muted">Aucune transaction.</td></tr>
             <?php endif; ?>
             </tbody>
