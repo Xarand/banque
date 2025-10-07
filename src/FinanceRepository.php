@@ -105,11 +105,11 @@ class FinanceRepository
     }
 
     /* =========================
-       Transactions (D+B logique de signe)
+       Transactions (logique D+B)
        ========================= */
 
     /**
-     * direction: 'credit'|'debit'|null (utilisé uniquement si pas de catégorie typée)
+     * direction: 'credit'|'debit'|null (utilisé si pas de catégorie typée)
      */
     public function addTransaction(
         int $userId,
@@ -158,7 +158,7 @@ class FinanceRepository
         } else {
             if ($direction === 'debit') {
                 $normalized = -$normalized;
-            } // 'credit' => positif
+            } // crédit => positif
         }
 
         $st = $this->pdo->prepare("
@@ -244,7 +244,7 @@ class FinanceRepository
         } else {
             if ($direction === 'debit') {
                 $normalized = -$normalized;
-            } // credit => positif
+            }
         }
 
         $st = $this->pdo->prepare("
@@ -327,9 +327,9 @@ class FinanceRepository
     }
 
     /**
-     * Retourne un PDOStatement pour exporter toutes les transactions filtrées (pas de LIMIT)
+     * Export (toutes transactions filtrées, sans limite)
      */
-    public function exportTransactions(int $userId, array $filters): PDOStatement
+    public function exportTransactions(int $userId, array $filters): \PDOStatement
     {
         $where   = ["t.user_id = :u"];
         $params  = [':u' => $userId];
