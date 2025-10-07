@@ -12,7 +12,6 @@ $userId = Util::currentUserId();
 
 $error = null;
 
-/* Création */
 if($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form']??'')==='create'){
   try{
     Util::checkCsrf();
@@ -33,6 +32,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['form']??'')==='create'){
 }
 
 $micros = $repo->listMicro($userId);
+function h($v){ return App\Util::h((string)$v); }
 ?>
 <!doctype html>
 <html lang="fr">
@@ -62,12 +62,13 @@ $micros = $repo->listMicro($userId);
 </nav>
 <div class="container pb-5">
   <?php foreach(App\Util::takeFlashes() as $fl): ?>
-    <div class="alert alert-<?= App\Util::h($fl['type']) ?> py-2"><?= App\Util::h($fl['msg']) ?></div>
+    <div class="alert alert-<?= h($fl['type']) ?> py-2"><?= h($fl['msg']) ?></div>
   <?php endforeach; ?>
+
   <div class="row">
     <div class="col-md-5">
       <h1 class="h5 mb-3">Nouvelle micro-entreprise</h1>
-      <?php if($error): ?><div class="alert alert-danger py-2"><?= App\Util::h($error) ?></div><?php endif; ?>
+      <?php if($error): ?><div class="alert alert-danger py-2"><?= h($error) ?></div><?php endif; ?>
       <form method="post" class="card p-3 shadow-sm">
         <?= App\Util::csrfInput() ?>
         <input type="hidden" name="form" value="create">
@@ -108,8 +109,8 @@ $micros = $repo->listMicro($userId);
           <tbody>
           <?php foreach($micros as $m): ?>
             <tr>
-              <td><?= App\Util::h($m['name']) ?></td>
-              <td><?= App\Util::h($m['regime'] ?? '') ?></td>
+              <td><?= h($m['name']) ?></td>
+              <td><?= h($m['regime'] ?? '') ?></td>
               <td><?= $m['ca_ceiling']!==null ? number_format((float)$m['ca_ceiling'],2,',',' ') : '—' ?></td>
               <td><?= $m['tva_ceiling']!==null ? number_format((float)$m['tva_ceiling'],2,',',' ') : '—' ?></td>
               <td><a class="btn btn-sm btn-outline-primary" href="micro_view.php?id=<?= (int)$m['id'] ?>">Ouvrir</a></td>

@@ -10,6 +10,7 @@ class MicroEnterpriseRepository
 {
     public function __construct(private PDO $pdo) {}
 
+    /* ========== Micro Enterprise CRUD ========== */
     public function createMicro(
         int $userId,
         string $name,
@@ -67,6 +68,7 @@ class MicroEnterpriseRepository
         if($st->rowCount()===0) throw new RuntimeException("Mise à jour micro entreprise non effectuée.");
     }
 
+    /* ========== Catégories micro ========== */
     public function createMicroCategory(int $userId, int $microId, string $name, string $type): int
     {
         $this->assertMicroOwnership($userId,$microId);
@@ -89,6 +91,7 @@ class MicroEnterpriseRepository
         return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
+    /* ========== Affectation compte -> micro ========== */
     public function attachAccount(int $userId, int $microId, int $accountId): void
     {
         $this->assertMicroOwnership($userId,$microId);
@@ -108,6 +111,7 @@ class MicroEnterpriseRepository
         $up->execute([':a'=>$accountId]);
     }
 
+    /* ========== Statistiques micro ========== */
     public function getMicroOverview(int $userId, int $microId, ?int $year=null): array
     {
         $this->assertMicroOwnership($userId,$microId);

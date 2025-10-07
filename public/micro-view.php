@@ -19,9 +19,6 @@ if (!$micro) {
     Util::redirect('micro_index.php');
 }
 
-/* =====================
-   Actions POST
-   ===================== */
 $year = isset($_GET['year']) && preg_match('/^\d{4}$/', $_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
 
 $errorCat  = null;
@@ -43,7 +40,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
                 Util::addFlash('success','Catégorie micro ajoutée.');
                 Util::redirect("micro_view.php?id={$id}&year={$year}");
                 break;
-
             case 'update_micro':
                 $microRepo->updateMicro($userId,$id,[
                     'name'          => $_POST['name'] ?? $micro['name'],
@@ -56,7 +52,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
                 Util::addFlash('success','Micro mise à jour.');
                 Util::redirect("micro_view.php?id={$id}&year={$year}");
                 break;
-
             case 'attach_account':
                 $accId = (int)($_POST['account_id'] ?? 0);
                 if ($accId <= 0) throw new RuntimeException("Compte invalide.");
@@ -64,7 +59,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
                 Util::addFlash('success','Compte rattaché.');
                 Util::redirect("micro_view.php?id={$id}&year={$year}");
                 break;
-
             case 'detach_account':
                 $accId = (int)($_POST['account_id'] ?? 0);
                 if ($accId <= 0) throw new RuntimeException("Compte invalide.");
@@ -74,15 +68,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
                 break;
         }
     } catch(Throwable $e) {
-        if ($form === 'micro_cat')  { $errorCat  = $e->getMessage(); }
-        elseif ($form === 'update_micro') { $errorUpd  = $e->getMessage(); }
-        else { $errorLink = $e->getMessage(); }
+        if ($form === 'micro_cat')       $errorCat  = $e->getMessage();
+        elseif ($form === 'update_micro') $errorUpd  = $e->getMessage();
+        else                               $errorLink = $e->getMessage();
     }
 }
 
-/* =====================
-   Données
-   ===================== */
 $overview   = $microRepo->getMicroOverview($userId,$id,$year);
 $microCats  = $microRepo->listMicroCategories($userId,$id);
 $allAccounts= $finRepo->listAccounts($userId);
@@ -97,18 +88,17 @@ foreach($allAccounts as $a) {
     }
 }
 
-/* Préparation graphique */
 $labels=[]; $dataCredits=[]; $dataDebits=[];
 for($m=1;$m<=12;$m++){
     $ym = sprintf('%04d-%02d',$year,$m);
     $labels[]=$ym;
-    $found = null;
+    $rowFound = null;
     foreach($overview['monthly'] as $row){
-        if($row['ym']===$ym){ $found=$row; break; }
+        if($row['ym']===$ym){ $rowFound=$row; break; }
     }
-    if($found){
-        $dataCredits[]=(float)$found['credits'];
-        $dataDebits[]=(float)$found['debits'];
+    if($rowFound){
+        $dataCredits[]=(float)$rowFound['credits'];
+        $dataDebits[]=(float)$rowFound['debits'];
     } else {
         $dataCredits[]=0; $dataDebits[]=0;
     }
@@ -192,7 +182,7 @@ function h($v){ return App\Util::h((string)$v); }
       <div class="summary-box">
         <h3>Dépenses</h3>
         <div class="fs-5 text-danger">-<?= number_format($overview['debits'],2,',',' ') ?> €</div>
-        <div class="small text-muted mt-2">Net: 
+        <div class="small text-muted mt-2">Net:
           <strong class="<?= $overview['net']<0?'text-danger':'text-success' ?>">
             <?= number_format($overview['net'],2,',',' ') ?> €
           </strong>
@@ -213,7 +203,6 @@ function h($v){ return App\Util::h((string)$v); }
     </div>
   </div>
 
-  <!-- Graph -->
   <div class="card p-3 mb-4 shadow-sm">
     <h2 class="h6 mb-3">Flux mensuels</h2>
     <canvas id="microChart" height="140"></canvas>
@@ -262,9 +251,7 @@ function h($v){ return App\Util::h((string)$v); }
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span>
               <?= h($ac['name']) ?>
-              <span class="text-muted">(
-                <?= number_format((float)$ac['current_balance'],2,',',' ') ?> €)
-              </span>
+              <span class="text-muted">(<?= number_format((float)$ac['current_balance'],2,',',' ') ?> €)</span>
             </span>
             <form method="post" class="ms-2" onsubmit="return confirm('Détacher ce compte ?');">
               <?= App\Util::csrfInput() ?>

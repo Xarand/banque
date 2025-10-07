@@ -121,14 +121,12 @@ class FinanceRepository
         ?string $notes = null,
         ?string $direction = null
     ): int {
-        // Vérif compte
         $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
         $acc->execute([':a' => $accountId, ':u' => $userId]);
         if (!$acc->fetchColumn()) {
             throw new RuntimeException("Compte introuvable.");
         }
 
-        // Catégorie
         $catType = null;
         if ($categoryId !== null) {
             $cat = $this->pdo->prepare("SELECT type FROM categories WHERE id=:c AND user_id=:u");
@@ -158,7 +156,7 @@ class FinanceRepository
         } else {
             if ($direction === 'debit') {
                 $normalized = -$normalized;
-            } // crédit => positif
+            }
         }
 
         $st = $this->pdo->prepare("
