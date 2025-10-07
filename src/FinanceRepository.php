@@ -64,7 +64,7 @@ class FinanceRepository
         ";
         $st = $this->pdo->prepare($sql);
         $st->execute([':u' => $userId]);
-        return $st->fetchAll() ?: [];
+        return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
     /* =========================
@@ -101,15 +101,15 @@ class FinanceRepository
           ORDER BY name COLLATE NOCASE
         ");
         $st->execute([':u' => $userId]);
-        return $st->fetchAll() ?: [];
+        return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
     /* =========================
-       Transactions (logique D+B)
+       Transactions
        ========================= */
 
     /**
-     * direction: 'credit'|'debit'|null (utilisé si pas de catégorie typée)
+     * direction: 'credit'|'debit'|null (si pas de catégorie typée)
      */
     public function addTransaction(
         int $userId,
@@ -119,14 +119,17 @@ class FinanceRepository
         string $desc = '',
         ?int $categoryId = null,
         ?string $notes = null,
-        ?string $direction = null
+        ?string $direction = null,
+        int $excludeFromCa = 0
     ): int {
+        // Vérif compte
         $acc = $this->pdo->prepare("SELECT 1 FROM accounts WHERE id=:a AND user_id=:u");
         $acc->execute([':a' => $accountId, ':u' => $userId]);
         if (!$acc->fetchColumn()) {
             throw new RuntimeException("Compte introuvable.");
         }
 
+        // Catégorie
         $catType = null;
         if ($categoryId !== null) {
             $cat = $this->pdo->prepare("SELECT type FROM categories WHERE id=:c AND user_id=:u");
@@ -148,7 +151,6 @@ class FinanceRepository
         }
 
         $normalized = abs($amount);
-
         if ($catType === 'expense') {
             $normalized = -$normalized;
         } elseif ($catType === 'income') {
@@ -160,17 +162,18 @@ class FinanceRepository
         }
 
         $st = $this->pdo->prepare("
-          INSERT INTO transactions(user_id,account_id,date,description,amount,category_id,notes)
-          VALUES(:u,:a,:d,:ds,:amt,:cat,:notes)
+          INSERT INTO transactions(user_id,account_id,date,description,amount,category_id,notes,exclude_from_ca)
+          VALUES(:u,:a,:d,:ds,:amt,:cat,:notes,:exca)
         ");
         $st->execute([
-            ':u' => $userId,
-            ':a' => $accountId,
-            ':d' => $date,
-            ':ds' => $desc ?: null,
-            ':amt' => $normalized,
-            ':cat' => $categoryId,
-            ':notes' => $notes ?: null
+            ':u'    => $userId,
+            ':a'    => $accountId,
+            ':d'    => $date,
+            ':ds'   => $desc ?: null,
+            ':amt'  => $normalized,
+            ':cat'  => $categoryId,
+            ':notes'=> $notes ?: null,
+            ':exca' => $excludeFromCa ? 1 : 0,
         ]);
         return (int)$this->pdo->lastInsertId();
     }
@@ -190,7 +193,7 @@ class FinanceRepository
     }
 
     /**
-     * direction: 'credit'|'debit'|null (utilisé uniquement si pas de catégorie typée)
+     * direction: 'credit'|'debit'|null
      */
     public function updateTransaction(
         int $userId,
@@ -201,7 +204,8 @@ class FinanceRepository
         string $desc = '',
         ?int $categoryId = null,
         ?string $notes = null,
-        ?string $direction = null
+        ?string $direction = null,
+        int $excludeFromCa = 0
     ): void {
         $existing = $this->getTransactionById($userId, $id);
         if (!$existing) {
@@ -238,7 +242,7 @@ class FinanceRepository
         if ($catType === 'expense') {
             $normalized = -$normalized;
         } elseif ($catType === 'income') {
-            // positif
+            // reste positif
         } else {
             if ($direction === 'debit') {
                 $normalized = -$normalized;
@@ -252,21 +256,23 @@ class FinanceRepository
                  description=:ds,
                  amount=:amt,
                  category_id=:cat,
-                 notes=:notes
+                 notes=:notes,
+                 exclude_from_ca=:exca
            WHERE id=:id AND user_id=:u
         ");
         $st->execute([
-            ':a' => $accountId,
-            ':d' => $date,
-            ':ds' => $desc ?: null,
-            ':amt' => $normalized,
-            ':cat' => $categoryId,
-            ':notes' => $notes ?: null,
-            ':id' => $id,
-            ':u' => $userId
+            ':a'    => $accountId,
+            ':d'    => $date,
+            ':ds'   => $desc ?: null,
+            ':amt'  => $normalized,
+            ':cat'  => $categoryId,
+            ':notes'=> $notes ?: null,
+            ':exca' => $excludeFromCa ? 1 : 0,
+            ':id'   => $id,
+            ':u'    => $userId
         ]);
         if ($st->rowCount() === 0) {
-            throw new RuntimeException("Mise à jour non effectuée.");
+            // Pas forcément une erreur si aucune donnée n'a changé
         }
     }
 
@@ -299,7 +305,7 @@ class FinanceRepository
         }
 
         $sql = "
-          SELECT t.id,t.date,t.description,t.amount,t.notes,
+          SELECT t.id,t.date,t.description,t.amount,t.notes,t.exclude_from_ca,
                  a.name AS account, c.name AS category, c.type AS category_type
           FROM transactions t
           JOIN accounts a ON a.id=t.account_id AND a.user_id=t.user_id
@@ -325,7 +331,7 @@ class FinanceRepository
     }
 
     /**
-     * Export (toutes transactions filtrées, sans limite)
+     * Export toutes transactions filtrées, sans limite
      */
     public function exportTransactions(int $userId, array $filters): \PDOStatement
     {
@@ -357,7 +363,8 @@ class FinanceRepository
                  c.type        AS category_type,
                  t.description,
                  t.amount,
-                 t.notes
+                 t.notes,
+                 t.exclude_from_ca
           FROM transactions t
           JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
           LEFT JOIN categories c ON c.id = t.category_id

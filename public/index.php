@@ -290,6 +290,10 @@ $exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '')
           <label class="form-label mb-1">Notes</label>
           <textarea name="notes" rows="2" class="form-control form-control-sm"></textarea>
         </div>
+        <div class="mb-2 form-check">
+  <input type="checkbox" class="form-check-input" id="tx-excl-ca" name="exclude_from_ca" value="1">
+  <label for="tx-excl-ca" class="form-check-label small">Ne pas inclure dans le chiffre d'affaires micro</label>
+</div>
 
         <button class="btn btn-sm btn-success">Ajouter</button>
       </form>

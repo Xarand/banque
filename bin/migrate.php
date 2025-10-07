@@ -7,14 +7,10 @@ use App\Database;
 
 $dir = __DIR__ . '/../migrations';
 if (!is_dir($dir)) {
-    echo "Dossier migrations manquant, création...\n";
-    if (!mkdir($dir, 0775, true) && !is_dir($dir)) {
-        fwrite(STDERR, "Impossible de créer le dossier migrations.\n");
-        exit(1);
-    }
+    mkdir($dir, 0775, true);
 }
 
-$db = new Database();
+$db  = new Database();
 $pdo = $db->pdo();
 $pdo->exec("PRAGMA foreign_keys = ON");
 
@@ -27,7 +23,7 @@ $pdo->exec("
 
 $applied = [];
 $st = $pdo->query("SELECT version FROM schema_migrations");
-foreach ($st->fetchAll(\PDO::FETCH_COLUMN) as $v) {
+foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $v) {
     $applied[$v] = true;
 }
 
@@ -47,23 +43,42 @@ if (!$pending) {
     exit(0);
 }
 
-$pdo->beginTransaction();
-try {
-    foreach ($pending as $version => $path) {
-        echo "==> Migration $version ... ";
-        $sql = file_get_contents($path);
-        if ($sql === false) {
-            throw new \RuntimeException("Lecture impossible: $path");
+foreach ($pending as $version => $path) {
+    echo "==> Migration $version ... ";
+    $sql = file_get_contents($path);
+    if ($sql === false) {
+        echo "ERREUR lecture.\n";
+        exit(1);
+    }
+    // Split grossière (sépare sur ; suivi d’un retour) pour exécuter plusieurs statements
+    $statements = array_filter(array_map('trim', preg_split('/;\s*[\r\n]+/', $sql)));
+    $pdo->beginTransaction();
+    try {
+        foreach ($statements as $stmt) {
+            if ($stmt === '') continue;
+            try {
+                $pdo->exec($stmt);
+            } catch (\Throwable $e) {
+                $msg = $e->getMessage();
+                // Ignorer erreurs idempotentes
+                if (
+                    str_contains($msg, 'already exists') ||
+                    str_contains($msg, 'duplicate column name')
+                ) {
+                    // ignore
+                } else {
+                    throw $e;
+                }
+            }
         }
-        $pdo->exec($sql);
         $ins = $pdo->prepare("INSERT INTO schema_migrations(version) VALUES(:v)");
         $ins->execute([':v' => $version]);
+        $pdo->commit();
         echo "OK\n";
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        echo "ERREUR migration: ".$e->getMessage()."\n";
+        exit(1);
     }
-    $pdo->commit();
-    echo "Toutes les migrations ont été appliquées.\n";
-} catch (\Throwable $e) {
-    $pdo->rollBack();
-    fwrite(STDERR, "ERREUR migration: " . $e->getMessage() . "\n");
-    exit(1);
 }
+echo "Toutes les migrations terminées.\n";
