@@ -1,0 +1,283 @@
+<?php
+declare(strict_types=1);
+
+namespace App;
+
+use PDO;
+use RuntimeException;
+
+class VersionedActivityRateRepository
+{
+    public function __construct(private PDO $pdo)
+    {
+        $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    }
+
+    /* ========= LIST/GET ========= */
+
+    public function listActive(): array
+    {
+        return $this->pdo->query("SELECT * FROM micro_activity_rates_active ORDER BY code")
+            ->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public function listDraft(): array
+    {
+        return $this->pdo->query("SELECT * FROM micro_activity_rates_draft ORDER BY code")
+            ->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public function getDraftById(int $id): ?array
+    {
+        $st = $this->pdo->prepare("SELECT * FROM micro_activity_rates_draft WHERE id=:id LIMIT 1");
+        $st->execute([':id'=>$id]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        return $r ?: null;
+    }
+
+    public function getDraftByCode(string $code): ?array
+    {
+        $st = $this->pdo->prepare("SELECT * FROM micro_activity_rates_draft WHERE code=:c LIMIT 1");
+        $st->execute([':c'=>$code]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        return $r ?: null;
+    }
+
+    /* ========= DRAFT CRUD ========= */
+
+    public function createDraft(array $data): int
+    {
+        $this->validate($data);
+        $sql = "
+            INSERT INTO micro_activity_rates_draft(
+                code,label,family,social_rate,ir_rate,cfp_rate,
+                chamber_type,chamber_rate_default,chamber_rate_alsace,chamber_rate_moselle,
+                ca_ceiling,tva_ceiling,tva_ceiling_major,tva_alert_threshold,created_at
+            ) VALUES (
+                :code,:label,:family,:sr,:ir,:cfp,
+                :ch_type,:ch_def,:ch_al,:ch_mo,
+                :ca,:tva,:tvaM,:tvaThr,datetime('now')
+            )
+        ";
+        $st = $this->pdo->prepare($sql);
+        $st->execute($this->bindParams($data));
+        return (int)$this->pdo->lastInsertId();
+    }
+
+    public function updateDraft(int $id, array $data): void
+    {
+        $this->validate($data);
+        $sql = "
+            UPDATE micro_activity_rates_draft
+               SET code=:code,label=:label,family=:family,
+                   social_rate=:sr, ir_rate=:ir, cfp_rate=:cfp,
+                   chamber_type=:ch_type, chamber_rate_default=:ch_def,
+                   chamber_rate_alsace=:ch_al, chamber_rate_moselle=:ch_mo,
+                   ca_ceiling=:ca, tva_ceiling=:tva, tva_ceiling_major=:tvaM,
+                   tva_alert_threshold=:tvaThr, updated_at=datetime('now')
+             WHERE id=:id
+        ";
+        $params = $this->bindParams($data) + [':id'=>$id];
+        $st = $this->pdo->prepare($sql);
+        $st->execute($params);
+    }
+
+    public function deleteDraft(int $id): void
+    {
+        $st = $this->pdo->prepare("DELETE FROM micro_activity_rates_draft WHERE id=:id");
+        $st->execute([':id'=>$id]);
+    }
+
+    /* ========= APPLY / HISTORY ========= */
+
+    public function applyDraftSet(string $note = null): void
+    {
+        $draft = $this->listDraft();
+        if (!$draft) {
+            throw new RuntimeException("Aucun barème draft à appliquer.");
+        }
+
+        // Snapshot actif avant remplacement (pour rollback possible)
+        $active = $this->listActive();
+        $snapshotJson = json_encode($active, JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+
+        // Historiser
+        $stHist = $this->pdo->prepare("
+            INSERT INTO activity_rate_history(snapshot_json, note)
+            VALUES(:snap,:note)
+        ");
+        $stHist->execute([
+            ':snap'=>$snapshotJson,
+            ':note'=>$note
+        ]);
+
+        // Replace (stratégie TRUNCATE + INSERT)
+        $this->pdo->beginTransaction();
+        try {
+            $this->pdo->exec("DELETE FROM micro_activity_rates_active");
+            $ins = $this->pdo->prepare("
+              INSERT INTO micro_activity_rates_active(
+                code,label,family,social_rate,ir_rate,cfp_rate,
+                chamber_type,chamber_rate_default,chamber_rate_alsace,chamber_rate_moselle,
+                ca_ceiling,tva_ceiling,tva_ceiling_major,tva_alert_threshold,created_at,updated_at
+              ) VALUES (
+                :code,:label,:family,:sr,:ir,:cfp,
+                :ch_type,:ch_def,:ch_al,:ch_mo,
+                :ca,:tva,:tvaM,:tvaThr,datetime('now'),:updated_at
+              )
+            ");
+            foreach ($draft as $row) {
+                $ins->execute([
+                    ':code'=>$row['code'],
+                    ':label'=>$row['label'],
+                    ':family'=>$row['family'],
+                    ':sr'=>$row['social_rate'],
+                    ':ir'=>$row['ir_rate'],
+                    ':cfp'=>$row['cfp_rate'],
+                    ':ch_type'=>$row['chamber_type'],
+                    ':ch_def'=>$row['chamber_rate_default'],
+                    ':ch_al'=>$row['chamber_rate_alsace'],
+                    ':ch_mo'=>$row['chamber_rate_moselle'],
+                    ':ca'=>$row['ca_ceiling'],
+                    ':tva'=>$row['tva_ceiling'],
+                    ':tvaM'=>$row['tva_ceiling_major'],
+                    ':tvaThr'=>$row['tva_alert_threshold'],
+                    ':updated_at'=>$row['updated_at']
+                ]);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    public function listHistory(int $limit = 20): array
+    {
+        $st = $this->pdo->prepare("SELECT * FROM activity_rate_history ORDER BY id DESC LIMIT :lim");
+        $st->bindValue(':lim',$limit,PDO::PARAM_INT);
+        $st->execute();
+        return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public function rollbackToHistory(int $historyId): void
+    {
+        $st = $this->pdo->prepare("SELECT * FROM activity_rate_history WHERE id=:id LIMIT 1");
+        $st->execute([':id'=>$historyId]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new RuntimeException("Historique introuvable.");
+        }
+        $data = json_decode($row['snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($data)) {
+            throw new RuntimeException("Snapshot corrompu.");
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $this->pdo->exec("DELETE FROM micro_activity_rates_active");
+            $ins = $this->pdo->prepare("
+              INSERT INTO micro_activity_rates_active(
+                code,label,family,social_rate,ir_rate,cfp_rate,
+                chamber_type,chamber_rate_default,chamber_rate_alsace,chamber_rate_moselle,
+                ca_ceiling,tva_ceiling,tva_ceiling_major,tva_alert_threshold,created_at,updated_at
+              ) VALUES (
+                :code,:label,:family,:sr,:ir,:cfp,
+                :ch_type,:ch_def,:ch_al,:ch_mo,
+                :ca,:tva,:tvaM,:tvaThr,datetime('now'),NULL
+              )
+            ");
+            foreach ($data as $rowActive) {
+                $ins->execute([
+                    ':code'=>$rowActive['code'],
+                    ':label'=>$rowActive['label'],
+                    ':family'=>$rowActive['family'],
+                    ':sr'=>$rowActive['social_rate'],
+                    ':ir'=>$rowActive['ir_rate'],
+                    ':cfp'=>$rowActive['cfp_rate'],
+                    ':ch_type'=>$rowActive['chamber_type'],
+                    ':ch_def'=>$rowActive['chamber_rate_default'],
+                    ':ch_al'=>$rowActive['chamber_rate_alsace'],
+                    ':ch_mo'=>$rowActive['chamber_rate_moselle'],
+                    ':ca'=>$rowActive['ca_ceiling'],
+                    ':tva'=>$rowActive['tva_ceiling'],
+                    ':tvaM'=>$rowActive['tva_ceiling_major'],
+                    ':tvaThr'=>$rowActive['tva_alert_threshold']
+                ]);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /* ========= PROPAGATION AUX MICROS ========= */
+
+    public function propagateCeilingsToMicro(): int
+    {
+        // Met à jour les micro_enterprises selon leur activity_code, sauf overrides
+        // On suppose que micro_enterprises.activity_code correspond à code actif
+        $updatedTotal = 0;
+        $active = $this->listActive();
+        $up = $this->pdo->prepare("
+          UPDATE micro_enterprises
+             SET ca_ceiling=:ca,
+                 tva_ceiling=:tva,
+                 tva_ceiling_major=:tvaM
+           WHERE activity_code=:code
+             AND override_ca_ceiling=0
+             AND override_tva_ceiling=0
+             AND override_tva_ceiling_major=0
+        ");
+        foreach ($active as $rate) {
+            $up->execute([
+                ':ca'=>$rate['ca_ceiling'],
+                ':tva'=>$rate['tva_ceiling'],
+                ':tvaM'=>$rate['tva_ceiling_major'],
+                ':code'=>$rate['code']
+            ]);
+            $updatedTotal += $up->rowCount();
+        }
+        return $updatedTotal;
+    }
+
+    /* ========= Helpers ========= */
+
+    private function validate(array $d): void
+    {
+        $required = ['code','label','family','social_rate','ca_ceiling','tva_ceiling','tva_ceiling_major','tva_alert_threshold'];
+        foreach ($required as $k) {
+            if (!isset($d[$k]) || $d[$k]==='') {
+                throw new RuntimeException("Champ requis manquant: $k");
+            }
+        }
+        // Exemples de garde :
+        if ($d['social_rate'] < 0 || $d['social_rate'] > 1) {
+            throw new RuntimeException("social_rate invalide (0–1)");
+        }
+        if ($d['ir_rate'] !== null && ($d['ir_rate'] < 0 || $d['ir_rate'] > 1)) {
+            throw new RuntimeException("ir_rate invalide (0–1)");
+        }
+    }
+
+    private function bindParams(array $d): array
+    {
+        return [
+            ':code'=>$d['code'],
+            ':label'=>$d['label'],
+            ':family'=>$d['family'],
+            ':sr'=>$d['social_rate'],
+            ':ir'=>$d['ir_rate'],
+            ':cfp'=>$d['cfp_rate'],
+            ':ch_type'=>$d['chamber_type'],
+            ':ch_def'=>$d['chamber_rate_default'],
+            ':ch_al'=>$d['chamber_rate_alsace'],
+            ':ch_mo'=>$d['chamber_rate_moselle'],
+            ':ca'=>$d['ca_ceiling'],
+            ':tva'=>$d['tva_ceiling'],
+            ':tvaM'=>$d['tva_ceiling_major'],
+            ':tvaThr'=>$d['tva_alert_threshold'],
+        ];
+    }
+}
