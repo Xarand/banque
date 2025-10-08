@@ -10,7 +10,7 @@ use App\{
     MicroActivityRepository
 };
 
-ini_set('display_errors','1'); // (optionnel en dev)
+ini_set('display_errors','1'); // Désactiver en prod
 error_reporting(E_ALL);
 
 Util::startSession();
@@ -21,10 +21,19 @@ $microRepo  = new MicroEnterpriseRepository($pdo);
 $actRepo    = new MicroActivityRepository($pdo);
 $userId     = Util::currentUserId();
 
-$activities = $actRepo->listAll();   // Doit retourner 5 lignes (508, 518, 781, 781_SSI, LM_TCL)
+$activities = $actRepo->listAll();
 $micros     = $microRepo->listMicro($userId);
 $hasMicro   = !empty($micros);
 $error      = null;
+
+/**
+ * Sécurise une chaîne en UTF-8 (corrige si besoin CP1252).
+ */
+function ensureUtf(string $s): string {
+    if (mb_check_encoding($s,'UTF-8')) return $s;
+    $c = @iconv('CP1252','UTF-8//IGNORE',$s);
+    return $c !== false ? $c : $s;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'create') {
     if ($hasMicro) {
@@ -106,32 +115,38 @@ body { background:#f5f6f8; }
             <input name="name" class="form-control form-control-sm" required autocomplete="off">
           </div>
 
-            <div class="mb-2">
-              <label class="form-label">Activité</label>
-              <select name="activity_code" id="activity" class="form-select form-select-sm" required>
-                <option value="">-- Choisir --</option>
-                <?php foreach ($activities as $ac): ?>
-                  <?php
-                    // Construction JSON fiable
-                    $json = htmlspecialchars(json_encode([
-                        'code'                => $ac['code'],
-                        'label'               => $ac['label'],
-                        'social_rate'         => $ac['social_rate'],
-                        'ir_rate'             => $ac['ir_rate'],
-                        'cfp_rate'            => $ac['cfp_rate'],
-                        'chamber_type'        => $ac['chamber_type'],
-                        'chamber_rate_default'=> $ac['chamber_rate_default'],
-                        'ca_ceiling'          => $ac['ca_ceiling'],
-                        'tva_ceiling'         => $ac['tva_ceiling'],
-                        'tva_ceiling_major'   => $ac['tva_ceiling_major'],
-                    ], JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR), ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
-                  ?>
-                  <option value="<?= h($ac['code']) ?>" data-json='<?= $json ?>'>
-                    <?= h($ac['code'].' - '.$ac['label']) ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
-            </div>
+          <div class="mb-2">
+            <label class="form-label">Activité</label>
+            <select name="activity_code" id="activity" class="form-select form-select-sm" required>
+              <option value="">-- Choisir --</option>
+              <?php foreach ($activities as $ac): ?>
+                <?php
+                  // Prépare les données pour l'aperçu JS
+                  $data = [
+                      'code'                  => $ac['code'],
+                      'label'                 => ensureUtf($ac['label']),
+                      'social_rate'           => $ac['social_rate'],
+                      'ir_rate'               => $ac['ir_rate'],
+                      'cfp_rate'              => $ac['cfp_rate'],
+                      'chamber_type'          => $ac['chamber_type'],
+                      'chamber_rate_default'  => $ac['chamber_rate_default'],
+                      'ca_ceiling'            => $ac['ca_ceiling'],
+                      'tva_ceiling'           => $ac['tva_ceiling'],
+                      'tva_ceiling_major'     => $ac['tva_ceiling_major'],
+                  ];
+                  $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+                  if ($json === false) {
+                      error_log('JSON encode error for activity '.$ac['code'].' : '.json_last_error_msg());
+                      $json = '{}';
+                  }
+                  $jsonAttr = htmlspecialchars($json, ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+                ?>
+                <option value="<?= h($ac['code']) ?>" data-json='<?= $jsonAttr ?>'>
+                  <?= h($ac['code'].' - '.$data['label']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
 
           <div class="mb-2">
             <label class="form-label">Fréquence</label>
@@ -205,7 +220,7 @@ if (sel) {
   sel.addEventListener('change', () => {
     const opt = sel.options[sel.selectedIndex];
     const js  = opt.getAttribute('data-json');
-    if (!js) {
+    if (!js || js === '{}') {
       previewNone.style.display = '';
       previewData.style.display = 'none';
       return;
@@ -223,9 +238,9 @@ if (sel) {
       ca_ceiling: data.ca_ceiling,
       tva_ceiling: data.tva_ceiling,
       tva_ceiling_major: data.tva_ceiling_major,
-      social_rate: (data.social_rate * 100).toFixed(2),
-      ir_rate: data.ir_rate !== null ? (data.ir_rate * 100).toFixed(2) : '—',
-      cfp_rate: data.cfp_rate !== null ? (data.cfp_rate * 100).toFixed(2) : '—',
+      social_rate: data.social_rate != null ? (data.social_rate * 100).toFixed(2) : '—',
+      ir_rate: data.ir_rate != null ? (data.ir_rate * 100).toFixed(2) : '—',
+      cfp_rate: data.cfp_rate != null ? (data.cfp_rate * 100).toFixed(2) : '—',
       chamber: data.chamber_type
           ? data.chamber_type + (data.chamber_rate_default ? ' ' + (data.chamber_rate_default * 100).toFixed(3) + '%' : '')
           : '—'
