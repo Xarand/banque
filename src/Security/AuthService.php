@@ -5,7 +5,6 @@ namespace App\Security;
 
 use PDO;
 use DateTimeImmutable;
-use RuntimeException;
 
 class AuthService
 {
@@ -14,37 +13,26 @@ class AuthService
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     }
 
-    /* ========== Password policy ========== */
     public static function validatePasswordPolicy(string $pwd): ?string
     {
         if (strlen($pwd) < 10) return "Mot de passe trop court (≥10).";
-        if (!preg_match('/[A-Za-z]/', $pwd)) return "Doit contenir une lettre.";
-        if (!preg_match('/\d/', $pwd)) return "Doit contenir un chiffre.";
+        if (!preg_match('/[A-Za-z]/',$pwd)) return "Doit contenir une lettre.";
+        if (!preg_match('/\d/',$pwd)) return "Doit contenir un chiffre.";
         return null;
     }
 
-    /* ========== Rate limiting ========== */
     public function isTemporarilyBlocked(?string $email, string $ip): bool
     {
-        $window = "datetime('now','-15 minutes')";
+        $w = "datetime('now','-15 minutes')";
         $eCount = 0;
         if ($email) {
-            $st = $this->pdo->prepare("
-                SELECT COUNT(*) FROM login_attempts
-                WHERE email=:e AND success=0
-                  AND created_at > $window
-            ");
+            $st = $this->pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE email=:e AND success=0 AND created_at > $w");
             $st->execute([':e'=>$email]);
             $eCount = (int)$st->fetchColumn();
         }
-        $st2 = $this->pdo->prepare("
-            SELECT COUNT(*) FROM login_attempts
-            WHERE ip=:ip AND success=0
-              AND created_at > $window
-        ");
+        $st2 = $this->pdo->prepare("SELECT COUNT(*) FROM login_attempts WHERE ip=:ip AND success=0 AND created_at > $w");
         $st2->execute([':ip'=>$ip]);
         $ipCount = (int)$st2->fetchColumn();
-
         return ($eCount >= 8) || ($ipCount >= 12);
     }
 
@@ -59,17 +47,16 @@ class AuthService
             ':e'=>$email,
             ':ip'=>$ip,
             ':ua'=>mb_substr($ua,0,255),
-            ':s'=>$success ? 1 : 0
+            ':s'=>$success?1:0
         ]);
     }
 
-    /* ========== Remember me tokens ========== */
-    public function createRememberMeToken(int $userId, int $days = 30): string
+    public function createRememberMeToken(int $userId, int $days=30): string
     {
-        $selector  = bin2hex(random_bytes(9));       // identifiant court
-        $validator = bin2hex(random_bytes(32));      // secret utilisateur
-        $hash      = password_hash($validator, PASSWORD_DEFAULT);
-        $expires   = (new DateTimeImmutable("+$days days"))->format('Y-m-d H:i:s');
+        $selector  = bin2hex(random_bytes(9));
+        $validator = bin2hex(random_bytes(32));
+        $hash = password_hash($validator, PASSWORD_DEFAULT);
+        $expires = (new DateTimeImmutable("+$days days"))->format('Y-m-d H:i:s');
 
         $st = $this->pdo->prepare("
           INSERT INTO auth_tokens(user_id,selector,validator_hash,expires_at)
@@ -81,26 +68,22 @@ class AuthService
             ':val'=>$hash,
             ':exp'=>$expires
         ]);
-        return $selector . ':' . $validator;
+        return $selector.':'.$validator;
     }
 
     public function consumeRememberMeToken(string $raw): ?int
     {
         if (!str_contains($raw, ':')) return null;
         [$selector,$validator] = explode(':',$raw,2);
-        if (!preg_match('/^[a-f0-9]+$/',$selector) || !preg_match('/^[a-f0-9]+$/',$validator)) {
-            return null;
-        }
+        if (!preg_match('/^[a-f0-9]+$/',$selector) || !preg_match('/^[a-f0-9]+$/',$validator)) return null;
         $st = $this->pdo->prepare("
           SELECT id,user_id,validator_hash,expires_at
           FROM auth_tokens
-          WHERE selector=:s
-          LIMIT 1
+          WHERE selector=:s LIMIT 1
         ");
         $st->execute([':s'=>$selector]);
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
-
         if (strtotime($row['expires_at']) < time()) {
             $this->deleteTokenId((int)$row['id']);
             return null;
@@ -128,9 +111,6 @@ class AuthService
 
     public function garbageCollectTokens(): void
     {
-        $this->pdo->exec("
-          DELETE FROM auth_tokens
-          WHERE expires_at < datetime('now')
-        ");
+        $this->pdo->exec("DELETE FROM auth_tokens WHERE expires_at < datetime('now')");
     }
 }
