@@ -9,7 +9,7 @@ use RuntimeException;
 
 class MicroEnterpriseRepository
 {
-    private const VERSION_TAG = 'MER-2025-10-08-1';
+    private const VERSION_TAG = 'MER-2025-10-09-tdue0';
 
     private bool $hasTvaCeilingMajor = false;
 
@@ -45,7 +45,8 @@ class MicroEnterpriseRepository
     public function listMicro(int $userId): array
     {
         $st = $this->pdo->prepare("
-            SELECT * FROM micro_enterprises
+            SELECT *
+            FROM micro_enterprises
             WHERE user_id=:u
             ORDER BY id ASC
         ");
@@ -205,6 +206,7 @@ class MicroEnterpriseRepository
             $dueDate    = $periodEnd->modify('+30 days');
         }
 
+        // Chargement barème
         $activity = null;
         if (!empty($micro['activity_code'])) {
             $stRate = $this->pdo->prepare("SELECT * FROM micro_activity_rates WHERE code=:c LIMIT 1");
@@ -212,6 +214,7 @@ class MicroEnterpriseRepository
             $activity = $stRate->fetch(PDO::FETCH_ASSOC) ?: null;
         }
 
+        // CA de la période: uniquement les crédits (>0)
         $ca = $this->periodCA(
             $userId,
             $microId,
@@ -236,11 +239,10 @@ class MicroEnterpriseRepository
         $cfpDue     = $cfpRate     !== null ? round($ca * $cfpRate,    2) : null;
         $chamberDue = $chamberRate !== null ? round($ca * $chamberRate,2) : null;
 
-        $total = 0.0;
-        foreach ([$socialDue,$irDue,$cfpDue,$chamberDue] as $v) {
-            if ($v !== null) $total += $v;
-        }
-        $total = $total > 0 ? round($total, 2) : null;
+        // Nouveau calcul: total_due = 0.00 si au moins un taux s'applique, même si CA=0
+        $hasAnyRate = ($socialRate !== null) || ($irRate !== null) || ($cfpRate !== null) || ($chamberRate !== null);
+        $sumDue = ($socialDue ?? 0) + ($irDue ?? 0) + ($cfpDue ?? 0) + ($chamberDue ?? 0);
+        $total = $hasAnyRate ? round($sumDue, 2) : null;
 
         $st = $this->pdo->prepare("
             SELECT id,status FROM micro_contribution_periods
@@ -279,14 +281,14 @@ class MicroEnterpriseRepository
             if (!$paid) {
                 $params += [
                     ':social_rate_used'  => $socialRate,
-                    ':social_due'        => $socialDue,
+                    ':social_due'        => $socialDue ?? 0.0,
                     ':ir_rate_used'      => $irRate,
-                    ':ir_due'            => $irDue,
+                    ':ir_due'            => $irDue ?? 0.0,
                     ':cfp_rate_used'     => $cfpRate,
-                    ':cfp_due'           => $cfpDue,
+                    ':cfp_due'           => $cfpDue ?? 0.0,
                     ':chamber_type'      => $activity['chamber_type'] ?? null,
                     ':chamber_rate_used' => $chamberRate,
-                    ':chamber_due'       => $chamberDue,
+                    ':chamber_due'       => $chamberDue ?? 0.0,
                     ':total_due'         => $total
                 ];
             }
@@ -320,14 +322,14 @@ class MicroEnterpriseRepository
                 ':dd'=>$dueDate->format('Y-m-d'),
                 ':ca'=>$ca,
                 ':social_rate_used'=>$socialRate,
-                ':social_due'=>$socialDue,
+                ':social_due'=>$socialDue ?? 0.0,
                 ':ir_rate_used'=>$irRate,
-                ':ir_due'=>$irDue,
+                ':ir_due'=>$irDue ?? 0.0,
                 ':cfp_rate_used'=>$cfpRate,
-                ':cfp_due'=>$cfpDue,
+                ':cfp_due'=>$cfpDue ?? 0.0,
                 ':chamber_type'=>$activity['chamber_type'] ?? null,
                 ':chamber_rate_used'=>$chamberRate,
-                ':chamber_due'=>$chamberDue,
+                ':chamber_due'=>$chamberDue ?? 0.0,
                 ':total_due'=>$total
             ]);
         }
@@ -371,10 +373,11 @@ class MicroEnterpriseRepository
         $up->execute([':id'=>$periodId]);
     }
 
+    // CA de période: uniquement les crédits (>0), et non les débits
     private function periodCA(int $userId, int $microId, string $start, string $end): float
     {
         $sql = "
-            SELECT COALESCE(SUM(t.amount),0)
+            SELECT COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0)
             FROM transactions t
             JOIN accounts a ON a.id = t.account_id
             WHERE t.user_id = :u
