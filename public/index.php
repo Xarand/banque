@@ -174,22 +174,7 @@ $exportUrl = 'export_csv.php' . ($query ? ('?' . http_build_query($query)) : '')
 </head>
 <body>
 
-<nav class="navbar navbar-expand-md navbar-dark bg-dark mb-3">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="index.php">Banque</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navMain">
-      <ul class="navbar-nav me-auto">
-        <li class="nav-item"><a class="nav-link active" href="index.php">Tableau</a></li>
-        <li class="nav-item"><a class="nav-link" href="reports.php">Rapports</a></li>
-        <li class="nav-item"><a class="nav-link" href="micro_index.php">Micro</a></li>
-      </ul>
-      <a href="logout.php" class="btn btn-sm btn-outline-light">Déconnexion</a>
-    </div>
-  </div>
-</nav>
+<?php include __DIR__.'/_nav.php'; ?>
 
 <div class="container pb-5">
 
