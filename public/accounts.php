@@ -29,120 +29,100 @@ $accHasMicro = hasCol($pdo, 'accounts', 'micro_enterprise_id');
 $accHasCAts  = hasCol($pdo, 'accounts', 'created_at');
 $trxHasUser  = hasCol($pdo, 'transactions', 'user_id');
 
-// Micro de l'utilisateur (pour rattacher le compte micro)
+// Micro de l'utilisateur (pour rattacher un compte micro)
 $microRow = null;
 try {
     $microRepo = new MicroEnterpriseRepository($pdo);
     $list = $microRepo->listMicro($userId);
-    // On ne crée rien automatiquement ici: si pas de micro, le type "Micro" sera désactivé
     $microRow = $list ? $list[0] : null;
 } catch (Throwable $e) {
-    $microRow = null; // si pas de tables micro, on continue (comptes perso OK)
+    $microRow = null;
+}
+
+// Fonctions utilitaires pour contrôles
+function ensureAccountOwned(PDO $pdo, int $accId, int $userId, bool $accHasUser): array {
+    $sqlAcc = "SELECT * FROM accounts WHERE id = :id";
+    $params = [ ':id' => $accId ];
+    if ($accHasUser) { $sqlAcc .= " AND user_id = :u"; $params[':u'] = $userId; }
+    $st = $pdo->prepare($sqlAcc);
+    $st->execute($params);
+    $acc = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$acc) throw new RuntimeException("Compte introuvable.");
+    return $acc;
+}
+function countAccountTransactions(PDO $pdo, int $accId, int $userId, bool $trxHasUser): int {
+    $sql = "SELECT COUNT(*) FROM transactions WHERE account_id = :id";
+    $params = [':id'=>$accId];
+    if ($trxHasUser) { $sql .= " AND user_id = :u"; $params[':u'] = $userId; }
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    return (int)$st->fetchColumn();
 }
 
 // POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         Util::checkCsrf();
+        $action = (string)($_POST['action'] ?? '');
 
         // Création compte
-        if (($_POST['action'] ?? '') === 'create_account') {
+        if ($action === 'create_account') {
             $name = trim((string)($_POST['name'] ?? ''));
             $kind = (string)($_POST['kind'] ?? 'personal'); // personal|micro
-
-            if ($name === '') {
-                throw new RuntimeException("Le nom du compte est requis.");
-            }
+            if ($name === '') throw new RuntimeException("Le nom du compte est requis.");
 
             $microId = null;
             if ($kind === 'micro') {
-                if (!$accHasMicro) {
-                    throw new RuntimeException("Le schéma ne supporte pas les comptes micro (colonne micro_enterprise_id absente).");
-                }
-                if ($microRow === null) {
-                    throw new RuntimeException("Aucune micro n'est disponible pour y rattacher un compte.");
-                }
+                if (!$accHasMicro) throw new RuntimeException("Le schéma ne supporte pas les comptes micro (colonne micro_enterprise_id absente).");
+                if ($microRow === null) throw new RuntimeException("Aucune micro disponible pour rattacher ce compte.");
                 $microId = (int)$microRow['id'];
 
-                // CONTRAINTE: 1 seul compte micro par utilisateur
-                // On vérifie s'il existe déjà un compte rattaché à la micro de cet utilisateur
+                // 1 seul compte micro par utilisateur
                 $sqlChk = "SELECT COUNT(*) FROM accounts WHERE micro_enterprise_id = :mid";
-                $paramsChk = [':mid' => $microId];
-                if ($accHasUser) {
-                    $sqlChk .= " AND user_id = :u";
-                    $paramsChk[':u'] = $userId;
-                }
+                $paramsChk = [':mid'=>$microId];
+                if ($accHasUser) { $sqlChk .= " AND user_id = :u"; $paramsChk[':u'] = $userId; }
                 $stChk = $pdo->prepare($sqlChk);
                 $stChk->execute($paramsChk);
-                $already = (int)$stChk->fetchColumn();
-                if ($already > 0) {
-                    throw new RuntimeException("Un compte micro existe déjà pour cet utilisateur. Supprime-le avant d'en créer un autre.");
+                if ((int)$stChk->fetchColumn() > 0) {
+                    throw new RuntimeException("Un compte micro existe déjà. Convertis-le en personnel ou supprime-le avant d'en créer un autre.");
                 }
             }
 
-            // Construction INSERT dynamique
-            $cols   = ['name'];
-            $values = [':name'];
-            $bind   = [':name' => $name];
+            $cols = ['name']; $vals = [':name']; $bind = [':name'=>$name];
+            if ($accHasUser)  { $cols[]='user_id';               $vals[]=':uid'; $bind[':uid']=$userId; }
+            if ($accHasMicro) { $cols[]='micro_enterprise_id';   $vals[]=':mid'; $bind[':mid']=$microId; }
+            if ($accHasCAts)  { $cols[]='created_at';            $vals[]="datetime('now')"; }
 
-            if ($accHasUser) {
-                $cols[] = 'user_id'; $values[] = ':uid'; $bind[':uid'] = $userId;
-            }
-            if ($accHasMicro) {
-                $cols[] = 'micro_enterprise_id'; $values[] = ':mid'; $bind[':mid'] = $microId;
-            }
-            if ($accHasCAts) {
-                $cols[] = 'created_at'; $values[] = "datetime('now')";
-            }
-
-            $sql = "INSERT INTO accounts(".implode(',', $cols).") VALUES (".implode(',', $values).")";
-            $st  = $pdo->prepare($sql);
-            $st->execute($bind);
+            $sql = "INSERT INTO accounts(".implode(',', $cols).") VALUES (".implode(',', $vals).")";
+            $pdo->prepare($sql)->execute($bind);
 
             Util::addFlash('success', "Compte créé.");
             Util::redirect('accounts.php');
         }
 
         // Suppression compte
-        if (($_POST['action'] ?? '') === 'delete_account') {
+        if ($action === 'delete_account') {
             $accId   = (int)($_POST['account_id'] ?? 0);
             $cascade = !empty($_POST['cascade']);
-
-            if ($accId <= 0) throw new RuntimeException("Compte invalide.");
-
-            // Vérifier que le compte existe (et appartient à l'utilisateur si colonne user_id)
-            $sqlAcc = "SELECT * FROM accounts WHERE id = :id";
-            $bindAcc = [':id' => $accId];
-            if ($accHasUser) { $sqlAcc .= " AND user_id = :u"; $bindAcc[':u'] = $userId; }
-            $stAcc = $pdo->prepare($sqlAcc);
-            $stAcc->execute($bindAcc);
-            $acc = $stAcc->fetch(PDO::FETCH_ASSOC);
-            if (!$acc) throw new RuntimeException("Compte introuvable.");
-
-            // Compter les transactions de ce compte
-            $sqlCnt = "SELECT COUNT(*) FROM transactions WHERE account_id = :id";
-            $bindCnt = [':id' => $accId];
-            if ($trxHasUser) { $sqlCnt .= " AND user_id = :u"; $bindCnt[':u'] = $userId; }
-            $stc = $pdo->prepare($sqlCnt);
-            $stc->execute($bindCnt);
-            $n = (int)$stc->fetchColumn();
+            $acc = ensureAccountOwned($pdo, $accId, $userId, $accHasUser);
+            $n   = countAccountTransactions($pdo, $accId, $userId, $trxHasUser);
 
             if ($n > 0 && !$cascade) {
-                throw new RuntimeException("Ce compte contient $n transaction(s). Coche “Supprimer aussi les transactions” pour une suppression en cascade.");
+                throw new RuntimeException("Ce compte contient $n transaction(s). Coche “Supprimer aussi les transactions”.");
             }
 
             $pdo->beginTransaction();
             try {
                 if ($n > 0 && $cascade) {
                     $sqlDelTrx = "DELETE FROM transactions WHERE account_id = :id";
-                    if ($trxHasUser) $sqlDelTrx .= " AND user_id = :u";
-                    $std = $pdo->prepare($sqlDelTrx);
-                    $std->execute($bindCnt);
+                    $params = [':id'=>$accId];
+                    if ($trxHasUser) { $sqlDelTrx .= " AND user_id = :u"; $params[':u'] = $userId; }
+                    $pdo->prepare($sqlDelTrx)->execute($params);
                 }
                 $sqlDelAcc = "DELETE FROM accounts WHERE id = :id";
-                if ($accHasUser) $sqlDelAcc .= " AND user_id = :u";
-                $std2 = $pdo->prepare($sqlDelAcc);
-                $std2->execute($bindAcc);
+                $params2 = [':id'=>$accId];
+                if ($accHasUser) { $sqlDelAcc .= " AND user_id = :u"; $params2[':u'] = $userId; }
+                $pdo->prepare($sqlDelAcc)->execute($params2);
                 $pdo->commit();
             } catch (Throwable $e) {
                 $pdo->rollBack();
@@ -153,6 +133,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             Util::redirect('accounts.php');
         }
 
+        // Convertir en personnel (détacher de la micro)
+        if ($action === 'make_personal') {
+            if (!$accHasMicro) throw new RuntimeException("Le schéma ne gère pas micro_enterprise_id.");
+            $accId = (int)($_POST['account_id'] ?? 0);
+            ensureAccountOwned($pdo, $accId, $userId, $accHasUser);
+
+            $sql = "UPDATE accounts SET micro_enterprise_id = NULL WHERE id = :id";
+            $params = [':id'=>$accId];
+            if ($accHasUser) { $sql .= " AND user_id = :u"; $params[':u'] = $userId; }
+            $pdo->prepare($sql)->execute($params);
+
+            Util::addFlash('success', "Compte converti en personnel (détaché de la micro).");
+            Util::redirect('accounts.php');
+        }
+
+        // Convertir en micro (si aucun compte micro n’existe encore)
+        if ($action === 'make_micro') {
+            if (!$accHasMicro) throw new RuntimeException("Le schéma ne gère pas micro_enterprise_id.");
+            if ($microRow === null) throw new RuntimeException("Aucune micro disponible.");
+            $accId = (int)($_POST['account_id'] ?? 0);
+            ensureAccountOwned($pdo, $accId, $userId, $accHasUser);
+
+            // Vérifier unicité
+            $sqlChk = "SELECT COUNT(*) FROM accounts WHERE micro_enterprise_id = :mid";
+            $paramsChk = [':mid'=>(int)$microRow['id']];
+            if ($accHasUser) { $sqlChk .= " AND user_id = :u"; $paramsChk[':u'] = $userId; }
+            $st = $pdo->prepare($sqlChk);
+            $st->execute($paramsChk);
+            if ((int)$st->fetchColumn() > 0) {
+                throw new RuntimeException("Un compte micro existe déjà. Détache-le avant de convertir ce compte.");
+            }
+
+            $sql = "UPDATE accounts SET micro_enterprise_id = :mid WHERE id = :id";
+            $params = [':mid'=>(int)$microRow['id'], ':id'=>$accId];
+            if ($accHasUser) { $sql .= " AND user_id = :u"; $params[':u'] = $userId; }
+            $pdo->prepare($sql)->execute($params);
+
+            Util::addFlash('success', "Compte converti en micro (rattaché à ".h($microRow['name']).").");
+            Util::redirect('accounts.php');
+        }
+
+        // Action inconnue
+        throw new RuntimeException("Action non reconnue.");
+
     } catch (Throwable $e) {
         Util::addFlash('danger', $e->getMessage());
         Util::redirect('accounts.php');
@@ -160,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-// Récupération des comptes pour affichage
+// Liste des comptes
 $sqlList = "SELECT id, name".($accHasMicro ? ", micro_enterprise_id" : "").($accHasUser ? ", user_id" : "")." FROM accounts";
 $paramsList = [];
 if ($accHasUser) { $sqlList .= " WHERE user_id = :u"; $paramsList[':u'] = $userId; }
@@ -198,7 +222,6 @@ body { background:#f5f6f8; }
 </style>
 </head>
 <body>
-
 <?php include __DIR__.'/_nav.php'; ?>
 
 <div class="container py-3">
@@ -217,23 +240,19 @@ body { background:#f5f6f8; }
             <input type="hidden" name="action" value="create_account">
             <div class="mb-2">
               <label class="form-label">Nom du compte</label>
-              <input type="text" name="name" class="form-control form-control-sm" required placeholder="Ex: Compte pro">
+              <input type="text" name="name" class="form-control form-control-sm" required placeholder="Ex: Compte courant">
             </div>
             <div class="mb-2">
               <label class="form-label">Type</label>
-              <select name="kind" id="kind" class="form-select form-select-sm">
-                <option value="personal">Personnel</option>
+              <select name="kind" class="form-select form-select-sm">
+                <option value="personal" selected>Personnel</option>
                 <option value="micro" <?= ($microRow && $accHasMicro) ? '' : 'disabled' ?>>
                   Micro (rattaché à <?= $microRow ? h($microRow['name']) : '—' ?>)
                 </option>
               </select>
-              <?php if (!$accHasMicro): ?>
-                <div class="form-text text-danger">Le schéma de la table accounts ne possède pas micro_enterprise_id.</div>
-              <?php elseif (!$microRow): ?>
-                <div class="form-text">Crée d'abord ta micro pour activer ce type.</div>
-              <?php else: ?>
-                <div class="form-text">Règle: 1 seul compte micro par utilisateur.</div>
-              <?php endif; ?>
+              <div class="form-text">
+                Personnel = non rattaché. Micro = rattaché à ta micro pour le calcul du CA.
+              </div>
             </div>
             <button class="btn btn-primary btn-sm">Créer</button>
           </form>
@@ -273,14 +292,31 @@ body { background:#f5f6f8; }
                   <td><?= $isMicro ? 'Micro' : 'Personnel' ?></td>
                   <td class="text-end"><?= $nTrx ?></td>
                   <td class="text-end">
+                    <?php if ($isMicro): ?>
+                      <!-- Convertir en personnel -->
+                      <form method="post" class="d-inline" onsubmit="return confirm('Convertir ce compte en personnel (le détacher de la micro) ?');">
+                        <?= Util::csrfInput() ?>
+                        <input type="hidden" name="action" value="make_personal">
+                        <input type="hidden" name="account_id" value="<?= (int)$a['id'] ?>">
+                        <button class="btn btn-sm btn-outline-secondary">Convertir en personnel</button>
+                      </form>
+                    <?php elseif ($microRow): ?>
+                      <!-- Convertir en micro (si aucun autre compte micro n’existe) -->
+                      <form method="post" class="d-inline" onsubmit="return confirm('Convertir ce compte en micro (rattacher à <?= h($microRow['name']) ?>) ?');">
+                        <?= Util::csrfInput() ?>
+                        <input type="hidden" name="action" value="make_micro">
+                        <input type="hidden" name="account_id" value="<?= (int)$a['id'] ?>">
+                        <button class="btn btn-sm btn-outline-primary">Convertir en micro</button>
+                      </form>
+                    <?php endif; ?>
+
+                    <!-- Supprimer -->
                     <form method="post" class="d-inline" onsubmit="return confirm('Supprimer ce compte<?= $nTrx>0 ? ' et ses transactions' : '' ?> ?');">
                       <?= Util::csrfInput() ?>
                       <input type="hidden" name="action" value="delete_account">
                       <input type="hidden" name="account_id" value="<?= (int)$a['id'] ?>">
                       <?php if ($nTrx>0): ?>
-                        <label class="me-2 small">
-                          <input type="checkbox" name="cascade" value="1"> Supprimer aussi les transactions
-                        </label>
+                        <label class="me-2 small"><input type="checkbox" name="cascade" value="1"> Supprimer aussi les transactions</label>
                       <?php endif; ?>
                       <button class="btn btn-sm btn-outline-danger">Supprimer</button>
                     </form>
