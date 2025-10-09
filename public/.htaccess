@@ -1,0 +1,7 @@
+# Pas de listing de r?pertoires
+Options -Indexes
+
+# Bloquer l?acc?s direct ? certains fichiers
+<FilesMatch "\.(sql|sh|ps1|bak|zip|gz)$">
+  Require all denied
+</FilesMatch>
