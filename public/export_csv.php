@@ -13,7 +13,7 @@ $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 $userId = Util::currentUserId();
 
-// Détecte la présence de la table categories
+// Détecte si la table categories existe
 $hasCategories = false;
 try {
     $st = $pdo->prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='categories' LIMIT 1");
@@ -26,25 +26,22 @@ try {
 function parseDate(?string $s): ?string {
     if (!$s) return null;
     $s = trim($s);
-    // Formats acceptés: YYYY-MM-DD ou DD/MM/YYYY
-    if (preg_match('~^\d{4}-\d{2}-\d{2}$~', $s)) return $s;
-    if (preg_match('~^(\d{2})/(\d{2})/(\d{4})$~', $s, $m)) {
+    if (preg_match('~^\d{4}-\d{2}-\d{2}$~', $s)) return $s;                  // YYYY-MM-DD
+    if (preg_match('~^(\d{2})/(\d{2})/(\d{4})$~', $s, $m)) {                 // DD/MM/YYYY
         return sprintf('%04d-%02d-%02d', (int)$m[3], (int)$m[2], (int)$m[1]);
     }
     return null;
 }
 
-// Récupère les filtres (noms génériques; adapte si ton index.php envoie d’autres noms)
+// Filtres (adapter si tes paramètres diffèrent)
 $accountId  = isset($_GET['account_id']) ? (int)$_GET['account_id'] : null;
 $categoryId = isset($_GET['category_id']) ? (int)$_GET['category_id'] : null;
 $dateFrom   = parseDate($_GET['from'] ?? $_GET['du'] ?? null);
 $dateTo     = parseDate($_GET['to']   ?? $_GET['au'] ?? null);
 $type       = $_GET['type'] ?? ''; // 'credit' | 'debit' | ''
-
-// Optionnel: restreindre aux comptes d’une micro (si fourni)
 $microId    = isset($_GET['micro_id']) ? (int)$_GET['micro_id'] : null;
 
-// Construction SQL
+// Colonnes sélectionnées
 $cols = [
     "t.date AS date",
     "a.name AS account",
@@ -53,7 +50,8 @@ $cols = [
     "t.description",
     "t.amount",
     "t.notes",
-    "t.exclude_from_ca"
+    // Exclusion effective du CA: 1 si montant <= 0 OU flag exclus = 1
+    "CASE WHEN t.amount <= 0 OR IFNULL(t.exclude_from_ca,0) = 1 THEN 1 ELSE 0 END AS excluded_ca"
 ];
 
 $sql = "
@@ -65,7 +63,7 @@ WHERE t.user_id = :u
 ";
 $params = [':u' => $userId];
 
-// Filtres
+// Application des filtres
 if ($accountId) {
     $sql .= " AND t.account_id = :acc";
     $params[':acc'] = $accountId;
@@ -100,7 +98,6 @@ $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 // Sortie CSV
 $filename = 'transactions_'.date('Ymd_His').'.csv';
-
 header('Content-Type: text/csv; charset=utf-8');
 header('Content-Disposition: attachment; filename="'.$filename.'"');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -122,10 +119,9 @@ foreach ($rows as $r) {
         $r['category'],
         $r['type'],
         $r['description'],
-        // Montant: on laisse brut; Excel FR affichera avec virgule selon régional
-        $r['amount'],
+        $r['amount'],           // brut
         $r['notes'],
-        $r['exclude_from_ca']
+        $r['excluded_ca']       // 0 ou 1 selon la règle effective
     ], ';');
 }
 
