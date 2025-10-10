@@ -5,155 +5,133 @@ namespace App;
 
 final class Util
 {
-    private const SESSION_USER_KEY  = 'user_id';
-    private const SESSION_CSRF_KEY  = '_csrf';
-    private const SESSION_FLASH_KEY = '_flashes';
-    private const CSRF_BYTES        = 32;
+    private const CSRF_KEY  = '_csrf_token';
+    private const FLASH_KEY = '_flashes';
 
-    private function __construct() {}
-
+    // Session
     public static function startSession(): void
     {
-        if (session_status() === PHP_SESSION_ACTIVE) return;
-        $cookieParams = session_get_cookie_params();
-        session_set_cookie_params([
-            'lifetime'=>0,
-            'path'=>$cookieParams['path'] ?? '/',
-            'domain'=>$cookieParams['domain'] ?? '',
-            'secure'=>false,
-            'httponly'=>true,
-            'samesite'=>'Strict',
-        ]);
-        session_start();
-        if (empty($_SESSION['_session_init'])) {
-            $_SESSION['_session_init'] = time();
-            session_regenerate_id(true);
+        if (session_status() !== \PHP_SESSION_ACTIVE) {
+            @session_start();
+        }
+        if (!isset($_SESSION[self::FLASH_KEY]) || !is_array($_SESSION[self::FLASH_KEY])) {
+            $_SESSION[self::FLASH_KEY] = [];
         }
     }
 
-    public static function loginUser(int $userId, bool $regen=false): void
+    // Utilisateur courant
+    public static function currentUserId(): int
     {
-        if ($regen) {
-            session_regenerate_id(true);
-        }
-        $_SESSION[self::SESSION_USER_KEY] = $userId;
+        self::startSession();
+        return isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : 0;
     }
 
+    // Etat d'auth
+    public static function isAuthenticated(): bool
+    {
+        return self::currentUserId() > 0;
+    }
+
+    // Alias legacy
+    public static function isLogged(): bool
+    {
+        return self::isAuthenticated();
+    }
+
+    // Exiger connexion
+    public static function requireAuth(string $redirectTo = 'login.php'): void
+    {
+        if (!self::isAuthenticated()) {
+            self::redirect($redirectTo);
+        }
+    }
+
+    // Connexion: définit l'utilisateur en session (compat Util::loginUser attendu par login.php)
+    public static function loginUser(int $userId): void
+    {
+        self::startSession();
+        // Régénère l'ID de session pour éviter la fixation de session
+        @session_regenerate_id(true);
+        $_SESSION['user_id'] = $userId;
+    }
+
+    // Alias legacy éventuels
+    public static function login(int $userId): void
+    {
+        self::loginUser($userId);
+    }
+
+    // Déconnexion
     public static function logoutUser(): void
     {
+        self::startSession();
         $_SESSION = [];
         if (ini_get('session.use_cookies')) {
             $p = session_get_cookie_params();
-            setcookie(session_name(), '', time()-42000,
-                $p['path'] ?? '/', $p['domain'] ?? '', $p['secure'] ?? false, $p['httponly'] ?? true
-            );
+            setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
         }
-        session_destroy();
+        @session_destroy();
     }
 
-    public static function isLogged(): bool
+    // Alias legacy
+    public static function logout(): void
     {
-        return !empty($_SESSION[self::SESSION_USER_KEY]);
+        self::logoutUser();
     }
 
-    public static function currentUserId(): int
-    {
-        return (int)($_SESSION[self::SESSION_USER_KEY] ?? 0);
-    }
-
-    public static function requireAuth(): void
-    {
-        if (!self::isLogged()) {
-            self::addFlash('warning','Veuillez vous connecter.');
-            self::redirect('login.php');
-        }
-    }
-
-    public static function requireAdmin(\PDO $pdo): void
-    {
-        self::requireAuth();
-        $uid = self::currentUserId();
-        $st = $pdo->prepare("SELECT is_admin FROM users WHERE id=:id LIMIT 1");
-        $st->execute([':id'=>$uid]);
-        $is = (int)$st->fetchColumn();
-        if ($is !== 1) {
-            self::addFlash('danger','Accès refusé (admin requis).');
-            self::redirect('index.php');
-        }
-    }
-
+    // CSRF
     public static function csrfToken(): string
     {
-        if (empty($_SESSION[self::SESSION_CSRF_KEY])) {
-            $_SESSION[self::SESSION_CSRF_KEY] = bin2hex(random_bytes(self::CSRF_BYTES));
+        self::startSession();
+        if (empty($_SESSION[self::CSRF_KEY])) {
+            $_SESSION[self::CSRF_KEY] = bin2hex(random_bytes(32));
         }
-        return $_SESSION[self::SESSION_CSRF_KEY];
+        return (string)$_SESSION[self::CSRF_KEY];
     }
 
     public static function csrfInput(): string
     {
-        return '<input type="hidden" name="_csrf" value="'.self::h(self::csrfToken()).'">';
+        $t = self::csrfToken();
+        return '<input type="hidden" name="_csrf" value="' . htmlspecialchars($t, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">';
     }
 
     public static function checkCsrf(): void
     {
-        $expected = $_SESSION[self::SESSION_CSRF_KEY] ?? '';
-        $given = $_POST['_csrf'] ?? $_GET['_csrf'] ?? '';
-        if (!is_string($given) || $given === '' || !hash_equals($expected,$given)) {
-            unset($_SESSION[self::SESSION_CSRF_KEY]);
-            throw new \RuntimeException('CSRF token invalide ou manquant.');
+        self::startSession();
+        $ok = isset($_POST['_csrf'], $_SESSION[self::CSRF_KEY])
+           && hash_equals((string)$_SESSION[self::CSRF_KEY], (string)$_POST['_csrf']);
+        if (!$ok) {
+            http_response_code(400);
+            throw new \RuntimeException('CSRF invalide.');
         }
     }
 
-    public static function addFlash(string $type,string $msg): void
+    // Flashes
+    public static function addFlash(string $type, string $msg): void
     {
-        $_SESSION[self::SESSION_FLASH_KEY][] = ['type'=>$type,'msg'=>$msg];
+        self::startSession();
+        $_SESSION[self::FLASH_KEY][] = ['type' => $type, 'msg' => $msg];
     }
 
     public static function takeFlashes(): array
     {
-        $fl = $_SESSION[self::SESSION_FLASH_KEY] ?? [];
-        unset($_SESSION[self::SESSION_FLASH_KEY]);
-        return $fl;
+        self::startSession();
+        $all = $_SESSION[self::FLASH_KEY] ?? [];
+        $_SESSION[self::FLASH_KEY] = [];
+        return $all;
     }
 
-    public static function redirect(string $path): void
+    // Redirection
+    public static function redirect(string $url): void
     {
-        header('Location: '.$path);
+        if ($url === '') { $url = 'index.php'; }
+        header('Location: ' . $url);
         exit;
     }
 
+    // Echappement
     public static function h(string $s): string
     {
-        return htmlspecialchars($s, ENT_QUOTES|ENT_SUBSTITUTE, 'UTF-8');
-    }
-
-    public static function floatOrNull(mixed $v): ?float
-    {
-        if ($v === null) return null;
-        if (is_float($v)) return $v;
-        if (is_int($v)) return (float)$v;
-        if (!is_string($v)) return null;
-        $s = trim(str_replace(["\u{00A0}", ' '], '', $v));
-        if ($s==='') return null;
-        $s = str_replace(',', '.', $s);
-        if (!preg_match('/^-?\d+(\.\d+)?$/',$s)) return null;
-        return (float)$s;
-    }
-
-    public static function toBool(mixed $v): bool
-    {
-        if (is_bool($v)) return $v;
-        if (is_int($v)) return $v===1;
-        if (is_string($v)) {
-            $sv = strtolower(trim($v));
-            return in_array($sv,['1','true','yes','on'], true);
-        }
-        return false;
-    }
-
-    public static function randomString(int $bytes=16): string
-    {
-        return bin2hex(random_bytes(max(1,$bytes)));
+        return htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 }
