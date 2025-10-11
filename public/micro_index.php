@@ -64,6 +64,7 @@ $mid=(int)$micro['id'];
 $code=(string)($micro['activity_code']??'');
 $def=$activities[$code]??null;
 
+// Plafonds/taux
 $ceil_ca      = isset($micro['ca_ceiling'])        ? (float)$micro['ca_ceiling']        : (float)($def['ceilings']['ca']        ?? 0);
 $ceil_vat     = isset($micro['vat_ceiling'])       ? (float)$micro['vat_ceiling']       : (float)($def['ceilings']['vat']       ?? 0);
 $ceil_vat_maj = isset($micro['vat_ceiling_major']) ? (float)$micro['vat_ceiling_major'] : (float)($def['ceilings']['vat_major'] ?? 0);
@@ -71,22 +72,16 @@ $ceil_vat_maj = isset($micro['vat_ceiling_major']) ? (float)$micro['vat_ceiling_
 $rate_social  = isset($micro['social_contrib_rate']) ? (float)$micro['social_contrib_rate'] : (float)($def['rates']['social'] ?? 0);
 $vl           = (int)($micro['versement_liberatoire'] ?? 0);
 
-// Prise en compte robuste du prélèvement libératoire:
-// - si VL = 0 => pas d’impôt libératoire (taux=0)
-// - si VL = 1 => on utilise le taux en base s’il est >0, sinon on applique automatiquement le taux de l’activité et on met à jour la base.
+// Prélèvement libératoire: applique automatiquement le taux d’activité si VL=1 et que la base vaut 0.
 $rate_tax = 0.0;
 if ($vl) {
     $rateInDb = isset($micro['income_tax_rate']) ? (float)$micro['income_tax_rate'] : 0.0;
-    if ($rateInDb > 0) {
-        $rate_tax = $rateInDb;
-    } else {
-        $fallback = (float)($def['rates']['income_tax'] ?? 0.0);
-        $rate_tax = $fallback;
-        if ($fallback > 0) {
-            $upd=$pdo->prepare("UPDATE micro_enterprises SET income_tax_rate = :ri WHERE id = :id");
-            $upd->execute([':ri'=>$fallback, ':id'=>$mid]);
-            $micro['income_tax_rate']=$fallback;
-        }
+    $fallback = (float)($def['rates']['income_tax'] ?? 0.0);
+    $rate_tax = $rateInDb > 0 ? $rateInDb : $fallback;
+    if ($rateInDb <= 0 && $fallback > 0) {
+        $pdo->prepare("UPDATE micro_enterprises SET income_tax_rate = :ri WHERE id = :id")
+            ->execute([':ri'=>$fallback, ':id'=>$mid]);
+        $micro['income_tax_rate']=$fallback;
     }
 }
 $rate_cfp = isset($micro['cfp_rate']) ? (float)$micro['cfp_rate'] : (float)($def['rates']['cfp'] ?? 0);
@@ -94,8 +89,7 @@ $rate_cma = isset($micro['cma_rate']) ? (float)$micro['cma_rate'] : (float)($def
 $activityLabel = $def['label'] ?? ($code!==''?('Activité « '.$code.' »'):'—');
 $declPeriod = (string)($micro['declaration_period'] ?? 'quarterly'); // monthly|quarterly
 
-// CA année en cours pour barres
-$yearNow = (int)date('Y'); $fromYearStart=date('Y-01-01'); $today=date('Y-m-d');
+// Tables et colonnes dispo
 $hasTrx=hasTable($pdo,'transactions'); $hasAcc=hasTable($pdo,'accounts');
 $trxHasDate=$hasTrx && hasCol($pdo,'transactions','date');
 $trxHasAmt =$hasTrx && hasCol($pdo,'transactions','amount');
@@ -103,18 +97,69 @@ $trxHasUser=$hasTrx && hasCol($pdo,'transactions','user_id');
 $trxHasExCa=$hasTrx && hasCol($pdo,'transactions','exclude_from_ca');
 $accHasMicro=$hasAcc && hasCol($pdo,'accounts','micro_enterprise_id');
 $accHasUser =$hasAcc && hasCol($pdo,'accounts','user_id');
+$trxHasCat  =$hasTrx && hasCol($pdo,'transactions','category_id');
+$hasCats    = hasTable($pdo,'categories');
+$catHasName = $hasCats && hasCol($pdo,'categories','name');
+$catHasCounts= $hasCats && hasCol($pdo,'categories','counts_in_ca'); // optionnel
 
-$caYearToDate=0.0;
-if ($hasTrx && $hasAcc && $trxHasAmt && $accHasMicro) {
-    $sql="SELECT ROUND(COALESCE(SUM(t.amount),0),2) FROM transactions t JOIN accounts a ON a.id=t.account_id
-          WHERE a.micro_enterprise_id=:mid AND t.amount>0";
-    $bind=[':mid'=>$mid];
-    if ($trxHasDate){ $sql.=" AND date(t.date)>=date(:d1) AND date(t.date)<=date(:d2)"; $bind[':d1']=$fromYearStart; $bind[':d2']=$today; }
-    if ($trxHasUser){ $sql.=" AND t.user_id=:u"; $bind[':u']=$userId; }
-    if ($accHasUser){ $sql.=" AND (a.user_id=:au OR a.user_id IS NULL)"; $bind[':au']=$userId; }
-    if ($trxHasExCa){ $sql.=" AND COALESCE(t.exclude_from_ca,0)=0"; }
-    $s=$pdo->prepare($sql); $s->execute($bind); $caYearToDate=(float)$s->fetchColumn();
+// Calcule un CA de période en excluant virements internes et catégories “Transfert/Virement” si possible.
+function computeCA(PDO $pdo, int $userId, int $mid, string $from, string $to,
+                   bool $hasTrx, bool $hasAcc, bool $trxHasAmt, bool $accHasMicro, bool $trxHasDate,
+                   bool $trxHasUser, bool $accHasUser, bool $trxHasExCa, bool $trxHasCat,
+                   bool $hasCats, bool $catHasName, bool $catHasCounts): float {
+    if (!($hasTrx && $hasAcc && $trxHasAmt && $accHasMicro)) return 0.0;
+
+    $sql = "
+      SELECT ROUND(COALESCE(SUM(t.amount),0),2) AS ca
+      FROM transactions t
+      JOIN accounts a ON a.id = t.account_id
+      ".($trxHasCat && $hasCats ? " LEFT JOIN categories c ON c.id = t.category_id " : "")."
+      WHERE a.micro_enterprise_id = :mid
+        AND t.amount > 0
+    ";
+    $bind = [':mid'=>$mid];
+
+    if ($trxHasDate) {
+        $sql .= " AND date(t.date) >= date(:d1) AND date(t.date) <= date(:d2)";
+        $bind[':d1'] = $from; $bind[':d2'] = $to;
+    }
+    if ($trxHasUser) { $sql .= " AND t.user_id = :u"; $bind[':u']=$userId; }
+    if ($accHasUser) { $sql .= " AND (a.user_id = :au OR a.user_id IS NULL)"; $bind[':au']=$userId; }
+    if ($trxHasExCa) { $sql .= " AND COALESCE(t.exclude_from_ca,0)=0"; }
+
+    // Exclure “Transfert/Virement” via catégorie si possible
+    if ($trxHasCat && $hasCats) {
+        if ($catHasCounts) {
+            $sql .= " AND COALESCE(c.counts_in_ca,1)=1";
+        } elseif ($catHasName) {
+            $sql .= " AND (c.name IS NULL OR (LOWER(c.name) NOT LIKE '%transf%' AND LOWER(c.name) NOT LIKE '%virement%'))";
+        }
+    }
+
+    // Exclure virements internes (heuristique): crédit qui a un débit du même montant le même jour sur un autre compte de l’utilisateur
+    $hasTransferHeuristic = $hasTrx && $hasAcc && $trxHasAmt && $accHasMicro && $trxHasDate;
+    if ($hasTransferHeuristic) {
+        $sql .= "
+          AND NOT EXISTS (
+            SELECT 1
+            FROM transactions t2
+            JOIN accounts a2 ON a2.id = t2.account_id
+            WHERE t2.amount < 0
+              AND ABS(t2.amount) = t.amount
+              ".($trxHasDate ? " AND date(t2.date) = date(t.date)" : "")."
+              ".($trxHasUser ? " AND t2.user_id = t.user_id" : "")."
+              ".($accHasUser ? " AND (a2.user_id = a.user_id OR a2.user_id IS NULL)" : "")."
+          )
+        ";
+    }
+
+    $s = $pdo->prepare($sql); $s->execute($bind);
+    return (float)$s->fetchColumn();
 }
+
+// CA année en cours (barres)
+$yearNow = (int)date('Y'); $fromYearStart=date('Y-01-01'); $today=date('Y-m-d');
+$caYearToDate = computeCA($pdo,$userId,$mid,$fromYearStart,$today,$hasTrx,$hasAcc,$trxHasAmt,$accHasMicro,$trxHasDate,$trxHasUser,$accHasUser,$trxHasExCa,$trxHasCat,$hasCats,$catHasName,$catHasCounts);
 
 // Année affichée + périodes détaillées
 $year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
@@ -126,17 +171,7 @@ $sumRate = $rate_social + $rate_tax + $rate_cfp + $rate_cma;
 if ($declPeriod === 'monthly') {
     for ($m=1; $m<=12; $m++){
         $from=sprintf('%04d-%02d-01',$year,$m); $to=lastDayOfMonth($from); $due=lastDayOfNextMonthFromEnd($to);
-        $ca=0.0;
-        if ($hasTrx && $hasAcc && $trxHasAmt && $accHasMicro && $trxHasDate) {
-            $sql="SELECT ROUND(COALESCE(SUM(t.amount),0),2) FROM transactions t JOIN accounts a ON a.id=t.account_id
-                  WHERE a.micro_enterprise_id=:mid AND t.amount>0
-                  AND date(t.date)>=date(:d1) AND date(t.date)<=date(:d2)";
-            $bind=[':mid'=>$mid, ':d1'=>$from, ':d2'=>$to];
-            if ($trxHasUser){ $sql.=" AND t.user_id=:u"; $bind[':u']=$userId; }
-            if ($accHasUser){ $sql.=" AND (a.user_id=:au OR a.user_id IS NULL)"; $bind[':au']=$userId; }
-            if ($trxHasExCa){ $sql.=" AND COALESCE(t.exclude_from_ca,0)=0"; }
-            $s=$pdo->prepare($sql); $s->execute($bind); $ca=(float)$s->fetchColumn();
-        }
+        $ca = computeCA($pdo,$userId,$mid,$from,$to,$hasTrx,$hasAcc,$trxHasAmt,$accHasMicro,$trxHasDate,$trxHasUser,$accHasUser,$trxHasExCa,$trxHasCat,$hasCats,$catHasName,$catHasCounts);
         $totalDue=round($ca * $sumRate, 2);
         $periodRows[]=['label'=>monthNameFR($m).' '.$year,'from'=>$from,'to'=>$to,'due'=>$due,'ca'=>$ca,'total'=>$totalDue];
         $yearTotalCA+=$ca; $yearTotalDue+=$totalDue;
@@ -145,17 +180,7 @@ if ($declPeriod === 'monthly') {
     $quarters=[['T1',"$year-01-01","$year-03-31"],['T2',"$year-04-01","$year-06-30"],['T3',"$year-07-01","$year-09-30"],['T4',"$year-10-01","$year-12-31"]];
     foreach($quarters as [$ql,$from,$to]){
         $due=lastDayOfNextMonthFromEnd($to);
-        $ca=0.0;
-        if ($hasTrx && $hasAcc && $trxHasAmt && $accHasMicro && $trxHasDate) {
-            $sql="SELECT ROUND(COALESCE(SUM(t.amount),0),2) FROM transactions t JOIN accounts a ON a.id=t.account_id
-                  WHERE a.micro_enterprise_id=:mid AND t.amount>0
-                  AND date(t.date)>=date(:d1) AND date(t.date)<=date(:d2)";
-            $bind=[':mid'=>$mid, ':d1'=>$from, ':d2'=>$to];
-            if ($trxHasUser){ $sql.=" AND t.user_id=:u"; $bind[':u']=$userId; }
-            if ($accHasUser){ $sql.=" AND (a.user_id=:au OR a.user_id IS NULL)"; $bind[':au']=$userId; }
-            if ($trxHasExCa){ $sql.=" AND COALESCE(t.exclude_from_ca,0)=0"; }
-            $s=$pdo->prepare($sql); $s->execute($bind); $ca=(float)$s->fetchColumn();
-        }
+        $ca = computeCA($pdo,$userId,$mid,$from,$to,$hasTrx,$hasAcc,$trxHasAmt,$accHasMicro,$trxHasDate,$trxHasUser,$accHasUser,$trxHasExCa,$trxHasCat,$hasCats,$catHasName,$catHasCounts);
         $totalDue=round($ca * $sumRate, 2);
         $periodRows[]=['label'=>$ql.' '.$year,'from'=>$from,'to'=>$to,'due'=>$due,'ca'=>$ca,'total'=>$totalDue];
         $yearTotalCA+=$ca; $yearTotalDue+=$totalDue;
@@ -270,7 +295,7 @@ include __DIR__.'/_nav.php';
             </table>
           </div>
           <div class="px-3 py-2">
-            <small class="text-muted">Échéance: dernier jour du mois suivant la fin de période.</small>
+            <small class="text-muted">Échéance: dernier jour du mois suivant la fin de période. Les virements internes sont exclus automatiquement du CA.</small>
           </div>
         </div>
       </div>

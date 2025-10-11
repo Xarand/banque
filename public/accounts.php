@@ -5,7 +5,7 @@ require __DIR__.'/../vendor/autoload.php';
 
 use App\{Util, Database};
 
-ini_set('display_errors','1');
+ini_set('display_errors','1'); // désactiver en prod si besoin
 error_reporting(E_ALL);
 
 Util::startSession();
@@ -74,42 +74,13 @@ function ensureMicroTable(PDO $pdo): void {
     }
 }
 
-ensureMicroTable($pdo);
-
-// Schéma comptes/transactions
-$accHasUser  = hasCol($pdo, 'accounts', 'user_id');
-$accHasMicro = hasCol($pdo, 'accounts', 'micro_enterprise_id');
-$accHasCAts  = hasCol($pdo, 'accounts', 'created_at');
-$trxHasUser  = hasCol($pdo, 'transactions', 'user_id');
-
-// Micro existante
-$st = $pdo->prepare("SELECT * FROM micro_enterprises WHERE user_id = :u LIMIT 1");
-$st->execute([':u'=>$userId]);
-$microRow = $st->fetch(PDO::FETCH_ASSOC) ?: null;
-
-// Un seul compte Micro autorisé
-$hasMicroAccount = false;
-try {
-    if ($accHasMicro) {
-        $sql = "SELECT COUNT(*) FROM accounts WHERE 1=1";
-        $bind = [];
-        if ($accHasUser) { $sql .= " AND user_id = :u"; $bind[':u'] = $userId; }
-        if ($microRow)   { $sql .= " AND micro_enterprise_id = :mid"; $bind[':mid'] = (int)$microRow['id']; }
-        else             { $sql .= " AND micro_enterprise_id IS NOT NULL"; }
-        $st = $pdo->prepare($sql);
-        $st->execute($bind);
-        $hasMicroAccount = ((int)$st->fetchColumn() > 0);
-    }
-} catch (Throwable $e) {
-    $hasMicroAccount = false;
-}
-
-// Référentiel activités
+// Source activités (référence de vérité)
 $activities = [];
 $cfgPath = __DIR__.'/../config/micro_activities.php';
 if (is_file($cfgPath)) {
     $activities = require $cfgPath;
 } else {
+    // Fallback minimal si le fichier n'est pas encore présent
     $activities = [
         'vente'          => ['label'=>'Vente de marchandises','ceilings'=>['ca'=>188700,'vat'=>91900,'vat_major'=>101000],'rates'=>['social'=>0.123,'income_tax'=>0.01,'cfp'=>0.001,'cma'=>0.00015]],
         'service'        => ['label'=>'Prestations de services','ceilings'=>['ca'=>77700,'vat'=>36800,'vat_major'=>39100],'rates'=>['social'=>0.212,'income_tax'=>0.017,'cfp'=>0.003,'cma'=>0.00015]],
@@ -119,7 +90,67 @@ if (is_file($cfgPath)) {
     ];
 }
 
-// Helpers
+// Assure la table micro
+ensureMicroTable($pdo);
+
+// Schéma comptes/transactions
+$accHasUser  = hasCol($pdo, 'accounts', 'user_id');
+$accHasMicro = hasCol($pdo, 'accounts', 'micro_enterprise_id');
+$accHasCAts  = hasCol($pdo, 'accounts', 'created_at');
+$trxHasUser  = hasCol($pdo, 'transactions', 'user_id');
+
+// Micro de l'utilisateur si existante
+$st = $pdo->prepare("SELECT * FROM micro_enterprises WHERE user_id = :u LIMIT 1");
+$st->execute([':u'=>$userId]);
+$microRow = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+
+// Un seul compte Micro autorisé
+$hasMicroAccount = false;
+if ($accHasMicro) {
+    $sql = "SELECT COUNT(*) FROM accounts WHERE 1=1";
+    $bind = [];
+    if ($accHasUser) { $sql .= " AND user_id = :u"; $bind[':u'] = $userId; }
+    if ($microRow)   { $sql .= " AND micro_enterprise_id = :mid"; $bind[':mid'] = (int)$microRow['id']; }
+    else             { $sql .= " AND micro_enterprise_id IS NOT NULL"; }
+    $st = $pdo->prepare($sql);
+    $st->execute($bind);
+    $hasMicroAccount = ((int)$st->fetchColumn() > 0);
+}
+
+// Applique les barèmes d'une activité à une micro
+function applyActivityToMicro(PDO $pdo, int $microId, string $activityCode, bool $versementLiberatoire, array $activities): void {
+    $def = $activities[$activityCode] ?? null;
+    if (!$def) {
+        throw new RuntimeException("Activité inconnue: $activityCode");
+    }
+    $incomeTax = $versementLiberatoire ? (float)$def['rates']['income_tax'] : 0.0;
+
+    $sql = "
+      UPDATE micro_enterprises SET
+        activity_code         = :ac,
+        ca_ceiling            = :ca,
+        vat_ceiling           = :vat,
+        vat_ceiling_major     = :vatm,
+        social_contrib_rate   = :rs,
+        income_tax_rate       = :ri,
+        cfp_rate              = :rcfp,
+        cma_rate              = :rcma
+      WHERE id = :id
+    ";
+    $pdo->prepare($sql)->execute([
+        ':ac'   => $activityCode,
+        ':ca'   => (float)$def['ceilings']['ca'],
+        ':vat'  => (float)$def['ceilings']['vat'],
+        ':vatm' => (float)$def['ceilings']['vat_major'],
+        ':rs'   => (float)$def['rates']['social'],
+        ':ri'   => $incomeTax,
+        ':rcfp' => (float)$def['rates']['cfp'],
+        ':rcma' => (float)$def['rates']['cma'],
+        ':id'   => $microId,
+    ]);
+}
+
+// Helpers de sécurité
 function ensureAccountOwned(PDO $pdo, int $accId, int $userId, bool $accHasUser): array {
     $sqlAcc = "SELECT * FROM accounts WHERE id = :id";
     $params = [ ':id' => $accId ];
@@ -139,24 +170,27 @@ function countAccountTransactions(PDO $pdo, int $accId, int $userId, bool $trxHa
     return (int)$st->fetchColumn();
 }
 
-// POST
+// Actions POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         Util::checkCsrf();
         $action = (string)($_POST['action'] ?? '');
 
+        // Créer un compte
         if ($action === 'create_account') {
             $name = trim((string)($_POST['name'] ?? ''));
-            $kind = (string)($_POST['kind'] ?? 'personal');
+            $kind = (string)($_POST['kind'] ?? 'personal'); // personal|micro
             if ($name === '') throw new RuntimeException("Le nom du compte est requis.");
 
             $microId = null;
             if ($kind === 'micro') {
-                if (!$accHasMicro) throw new RuntimeException("Le schéma ne supporte pas les comptes micro.");
+                if (!$accHasMicro) throw new RuntimeException("Le schéma ne supporte pas les comptes micro (colonne micro_enterprise_id absente).");
+
+                // Champs Micro
                 $creationDate = trim((string)($_POST['micro_created_at'] ?? ''));
                 $activityCode = trim((string)($_POST['activity_code'] ?? ''));
-                $liberatoire  = isset($_POST['versement_liberatoire']) ? 1 : 0;
-                $declPeriod   = (string)($_POST['declaration_period'] ?? 'quarterly');
+                $liberatoire  = isset($_POST['versement_liberatoire']);
+                $declPeriod   = (string)($_POST['declaration_period'] ?? 'quarterly'); // monthly|quarterly
 
                 if ($activityCode === '' || !isset($activities[$activityCode])) {
                     throw new RuntimeException("Activité invalide.");
@@ -165,83 +199,115 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new RuntimeException("Un seul compte Micro est autorisé.");
                 }
 
+                // Crée/maj la micro
                 if (!$microRow) {
                     $pdo->prepare("
                       INSERT INTO micro_enterprises (user_id, activity_code, created_at, declaration_period, versement_liberatoire)
                       VALUES (:u, :ac, :dt, :dp, :vl)
                     ")->execute([
-                        ':u'=>$userId, ':ac'=>$activityCode, ':dt'=>$creationDate !== '' ? $creationDate : date('Y-m-d'), ':dp'=>$declPeriod, ':vl'=>$liberatoire
+                        ':u'=>$userId,
+                        ':ac'=>$activityCode,
+                        ':dt'=>$creationDate !== '' ? $creationDate : date('Y-m-d'),
+                        ':dp'=>$declPeriod,
+                        ':vl'=>$liberatoire ? 1 : 0,
                     ]);
-                    $mid = (int)$pdo->lastInsertId();
-                    $st = $pdo->prepare("SELECT * FROM micro_enterprises WHERE id = :id");
-                    $st->execute([':id'=>$mid]);
-                    $microRow = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+                    $microId = (int)$pdo->lastInsertId();
                 } else {
+                    $microId = (int)$microRow['id'];
                     $pdo->prepare("
                       UPDATE micro_enterprises
-                      SET activity_code=:ac, created_at=COALESCE(NULLIF(:dt,''), created_at), declaration_period=:dp, versement_liberatoire=:vl
-                      WHERE id = :id AND user_id = :u
+                      SET activity_code=:ac,
+                          created_at=COALESCE(NULLIF(:dt,''), created_at),
+                          declaration_period=:dp,
+                          versement_liberatoire=:vl
+                      WHERE id=:id AND user_id=:u
                     ")->execute([
-                        ':ac'=>$activityCode, ':dt'=>$creationDate, ':dp'=>$declPeriod, ':vl'=>$liberatoire, ':id'=>(int)$microRow['id'], ':u'=>$userId
+                        ':ac'=>$activityCode,
+                        ':dt'=>$creationDate,
+                        ':dp'=>$declPeriod,
+                        ':vl'=>$liberatoire ? 1 : 0,
+                        ':id'=>$microId,
+                        ':u'=>$userId,
                     ]);
                 }
 
-                $def = $activities[$activityCode];
-                $incomeTaxRate = $liberatoire ? (float)$def['rates']['income_tax'] : 0.0;
-
-                $pdo->prepare("
-                  UPDATE micro_enterprises SET
-                    ca_ceiling            = :ca,
-                    vat_ceiling           = :vat,
-                    vat_ceiling_major     = :vatm,
-                    social_contrib_rate   = :rs,
-                    income_tax_rate       = :ri,
-                    cfp_rate              = :rcfp,
-                    cma_rate              = :rcma
-                  WHERE user_id = :u
-                ")->execute([
-                    ':ca'=>(float)$def['ceilings']['ca'],
-                    ':vat'=>(float)$def['ceilings']['vat'],
-                    ':vatm'=>(float)$def['ceilings']['vat_major'],
-                    ':rs'=>(float)$def['rates']['social'],
-                    ':ri'=>$incomeTaxRate,
-                    ':rcfp'=>(float)$def['rates']['cfp'],
-                    ':rcma'=>(float)$def['rates']['cma'],
-                    ':u'=>$userId,
-                ]);
-
-                $microId = $microRow ? (int)$microRow['id'] : (int)$pdo->lastInsertId();
+                // Applique barèmes depuis micro_activities.php
+                applyActivityToMicro($pdo, $microId, $activityCode, $liberatoire, $activities);
             }
 
+            // Création du compte
             $cols = ['name']; $vals = [':name']; $bind = [':name'=>$name];
-            if ($accHasUser)  { $cols[]='user_id';             $vals[]=':uid'; $bind[':uid']=$userId; }
-            if ($accHasMicro) { $cols[]='micro_enterprise_id'; $vals[]=':mid'; $bind[':mid'] = $microId; }
-            if ($accHasCAts)  { $cols[]='created_at';          $vals[]="datetime('now')"; }
+            if ($accHasUser)  { $cols[]='user_id';               $vals[]=':uid'; $bind[':uid']=$userId; }
+            if ($accHasMicro) { $cols[]='micro_enterprise_id';   $vals[]=':mid'; $bind[':mid'] = $microId; }
+            if ($accHasCAts)  { $cols[]='created_at';            $vals[]="datetime('now')"; }
 
             $sql = "INSERT INTO accounts(".implode(',', $cols).") VALUES (".implode(',', $vals).")";
             $pdo->prepare($sql)->execute($bind);
 
-            Util::addFlash('success', "Compte créé.".($kind==='micro' ? " Micro configuré." : ""));
+            Util::addFlash('success', "Compte créé.".($kind==='micro' ? " Barèmes appliqués." : ""));
             Util::redirect('accounts.php');
         }
 
+        // Renommer / Mettre à jour (inclut micro metadata)
         if ($action === 'update_account') {
             $accId = (int)($_POST['account_id'] ?? 0);
             $name  = trim((string)($_POST['name'] ?? ''));
             if ($accId <= 0) throw new RuntimeException("Compte invalide.");
             if ($name === '') throw new RuntimeException("Le nom du compte est requis.");
+
             ensureAccountOwned($pdo, $accId, $userId, $accHasUser);
+
+            // Nom
             $sql = "UPDATE accounts SET name = :n WHERE id = :id";
             $params = [':n'=>$name, ':id'=>$accId];
             if ($accHasUser) { $sql .= " AND user_id = :u"; $params[':u'] = $userId; }
             $pdo->prepare($sql)->execute($params);
+
+            // Si formulaire d’édition Micro présent, propager
+            $isMicro = (int)($_POST['is_micro'] ?? 0) === 1;
+            if ($isMicro) {
+                // Retrouve la micro liée à cet utilisateur
+                $st = $pdo->prepare("SELECT id FROM micro_enterprises WHERE user_id=:u LIMIT 1");
+                $st->execute([':u'=>$userId]);
+                $mid = (int)($st->fetchColumn() ?: 0);
+                if ($mid > 0) {
+                    $creationDate = trim((string)($_POST['micro_created_at'] ?? ''));
+                    $activityCode = trim((string)($_POST['activity_code'] ?? ''));
+                    $liberatoire  = isset($_POST['versement_liberatoire']);
+                    $declPeriod   = (string)($_POST['declaration_period'] ?? 'quarterly');
+
+                    if ($activityCode !== '' && isset($activities[$activityCode])) {
+                        $pdo->prepare("
+                          UPDATE micro_enterprises
+                          SET activity_code=:ac,
+                              created_at=COALESCE(NULLIF(:dt,''), created_at),
+                              declaration_period=:dp,
+                              versement_liberatoire=:vl
+                          WHERE id=:id AND user_id=:u
+                        ")->execute([
+                            ':ac'=>$activityCode,
+                            ':dt'=>$creationDate,
+                            ':dp'=>$declPeriod,
+                            ':vl'=>$liberatoire ? 1 : 0,
+                            ':id'=>$mid,
+                            ':u'=>$userId,
+                        ]);
+
+                        // Réappliquer barèmes de l’activité sélectionnée
+                        applyActivityToMicro($pdo, $mid, $activityCode, $liberatoire, $activities);
+                    }
+                }
+            }
+
             Util::addFlash('success', "Compte modifié.");
             Util::redirect('accounts.php');
         }
 
+        // Supprimer un compte (avec suppression de ses transactions)
         if ($action === 'delete_account') {
             $accId = (int)($_POST['account_id'] ?? 0);
             if ($accId <= 0) throw new RuntimeException("Compte invalide.");
+
             ensureAccountOwned($pdo, $accId, $userId, $accHasUser);
             $n = countAccountTransactions($pdo, $accId, $userId, $trxHasUser);
 
@@ -262,6 +328,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->rollBack();
                 throw $e;
             }
+
             Util::addFlash('success', "Compte supprimé.".($n>0 ? " ($n transaction(s) supprimée(s))" : ""));
             Util::redirect('accounts.php');
         }
@@ -284,7 +351,7 @@ $st = $pdo->prepare($sqlList);
 $st->execute($paramsList);
 $accounts = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-// Nombre de transactions
+// Nombre de transactions par compte
 $counts = [];
 if ($accounts) {
     $ids = array_map(fn($r)=>(int)$r['id'], $accounts);
@@ -300,7 +367,7 @@ if ($accounts) {
     }
 }
 
-// Soldes + total
+// Soldes par compte + total
 $balances = [];
 $totalAll = 0.0;
 if ($accounts) {
@@ -321,6 +388,17 @@ if ($accounts) {
 }
 
 $editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
+
+// Valeurs micro actuelles pour préremplir l’édition
+if (!$microRow) {
+    $st = $pdo->prepare("SELECT * FROM micro_enterprises WHERE user_id = :u LIMIT 1");
+    $st->execute([':u'=>$userId]);
+    $microRow = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+$mc_created = (string)($microRow['created_at'] ?? date('Y-m-d'));
+$mc_activity = (string)($microRow['activity_code'] ?? '');
+$mc_vl = (int)($microRow['versement_liberatoire'] ?? 0);
+$mc_decl = (string)($microRow['declaration_period'] ?? 'quarterly');
 ?>
 <!doctype html>
 <html lang="fr">
@@ -333,17 +411,44 @@ $editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
 body { background:#f5f6f8; }
 .badge-micro { background:#0d6efd; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-/* Checkboxes plus visibles */
-.form-check-input.checkbox-strong {
-  transform: scale(1.25);
-  border-width: 2px;
-  accent-color: #0d6efd; /* pleine couleur quand cochée (navigateurs récents) */
+/* Cases à cocher pleines et visibles */
+/* Cases à cocher pleines avec coche BLEUE visible */
+.form-check-input.checkbox-solid{
+  appearance:none;
+  width:1.15rem; height:1.15rem;
+  border:2px solid #0d6efd;
+  border-radius:.25rem;
+  background:#fff;
+  position:relative;
+  cursor:pointer;
 }
-.form-check-input.checkbox-strong:checked {
-  background-color: #0d6efd;
-  border-color: #0d6efd;
-  box-shadow: 0 0 0 .2rem rgba(13,110,253,.25);
+.form-check-input.checkbox-solid:focus{
+  outline:none;
+  box-shadow:0 0 0 .2rem rgba(13,110,253,.25);
 }
+/* coche bleue (✓) dessinée en CSS, sur fond blanc */
+.form-check-input.checkbox-solid:checked{
+  background:#fff;      /* on garde la case blanche */
+  border-color:#0d6efd; /* bord bleu */
+}
+.form-check-input.checkbox-solid:checked::after{
+  content:'';
+  position:absolute;
+  left:.30rem;          /* ajustez ces 4 valeurs si besoin */
+  top:.05rem;
+  width:.38rem;
+  height:.70rem;
+  border:.18rem solid #0d6efd; /* COULEUR DE LA COCHE */
+  border-top:0;
+  border-left:0;
+  transform:rotate(45deg);
+}
+
+/* Bonus: colore aussi les checkboxes “classiques” si vous en avez ailleurs */
+.form-check-input:not(.checkbox-solid){
+  accent-color:#0d6efd; /* coche blanche sur fond bleu (comportement natif) */
+}
+.form-check-input.checkbox-solid:focus { box-shadow: 0 0 0 .2rem rgba(13,110,253,.25); outline: none; }
 </style>
 </head>
 <body>
@@ -378,7 +483,7 @@ body { background:#f5f6f8; }
               <?php endif; ?>
             </div>
 
-            <!-- Options Micro -->
+            <!-- Bloc options Micro -->
             <div id="microOptions" style="display:none;">
               <hr class="my-2">
               <div class="mb-2">
@@ -396,7 +501,7 @@ body { background:#f5f6f8; }
               </div>
 
               <div class="form-check mb-2">
-                <input class="form-check-input checkbox-strong" type="checkbox" name="versement_liberatoire" id="vl">
+                <input class="form-check-input checkbox-solid" type="checkbox" name="versement_liberatoire" id="vl">
                 <label class="form-check-label" for="vl">Impôt libératoire</label>
               </div>
 
@@ -451,13 +556,48 @@ body { background:#f5f6f8; }
                 <tr>
                   <td>
                     <?php if ($isEditing): ?>
-                      <form method="post" class="d-flex gap-2 align-items-center">
+                      <form method="post" class="d-grid gap-2">
                         <?= Util::csrfInput() ?>
                         <input type="hidden" name="action" value="update_account">
                         <input type="hidden" name="account_id" value="<?= (int)$a['id'] ?>">
-                        <input type="text" class="form-control form-control-sm" name="name" value="<?= h($a['name']) ?>" required>
-                        <button class="btn btn-sm btn-primary">Enregistrer</button>
-                        <a class="btn btn-sm btn-outline-secondary" href="accounts.php">Annuler</a>
+
+                        <div class="d-flex gap-2 align-items-center">
+                          <input type="text" class="form-control form-control-sm" name="name" value="<?= h($a['name']) ?>" required>
+                          <button class="btn btn-sm btn-primary">Enregistrer</button>
+                          <a class="btn btn-sm btn-outline-secondary" href="accounts.php">Annuler</a>
+                        </div>
+
+                        <?php if ($isMicro): ?>
+                          <input type="hidden" name="is_micro" value="1">
+                          <hr class="my-2">
+                          <div class="row g-2">
+                            <div class="col-md-6">
+                              <label class="form-label mb-0 small">Date de création</label>
+                              <input type="date" class="form-control form-control-sm" name="micro_created_at" value="<?= h($mc_created) ?>">
+                            </div>
+                            <div class="col-md-6">
+                              <label class="form-label mb-0 small">Déclaration de CA</label>
+                              <select name="declaration_period" class="form-select form-select-sm">
+                                <option value="monthly" <?= $mc_decl==='monthly'?'selected':'' ?>>Mensuelle</option>
+                                <option value="quarterly" <?= $mc_decl!=='monthly'?'selected':'' ?>>Trimestrielle</option>
+                              </select>
+                            </div>
+                            <div class="col-md-8">
+                              <label class="form-label mb-0 small">Type d'activité</label>
+                              <select name="activity_code" class="form-select form-select-sm">
+                                <?php foreach ($activities as $code=>$def): ?>
+                                  <option value="<?= h((string)$code) ?>" <?= $mc_activity===(string)$code?'selected':'' ?>><?= h((string)$def['label']) ?></option>
+                                <?php endforeach; ?>
+                              </select>
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                              <div class="form-check">
+                                <input class="form-check-input checkbox-solid" type="checkbox" name="versement_liberatoire" id="vl_edit" <?= $mc_vl? 'checked':'' ?>>
+                                <label class="form-check-label" for="vl_edit">Impôt libératoire</label>
+                              </div>
+                            </div>
+                          </div>
+                        <?php endif; ?>
                       </form>
                     <?php else: ?>
                       <?= h($a['name']) ?><?= $isMicro ? ' <span class="badge badge-micro">Micro</span>' : '' ?>
@@ -499,7 +639,7 @@ body { background:#f5f6f8; }
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// Affiche/masque les options Micro selon le type choisi
+// Affiche/masque les options Micro selon le type choisi (création)
 (function(){
   var kind = document.getElementById('kind');
   var block = document.getElementById('microOptions');

@@ -19,7 +19,7 @@ return [
             'social'       => 0.123,   // Cotisations sociales
             'income_tax'   => 0.01,    // Impôt forfaitaire (versement libératoire)
             'cfp'          => 0.001,   // Contribution à la formation professionnelle
-            'cma'          => 0.00015, // CMA
+            'cma'          => 0.0022, // CMA
         ],
     ],
     'service' => [
@@ -33,7 +33,7 @@ return [
             'social'       => 0.212,
             'income_tax'   => 0.017,
             'cfp'          => 0.003,
-            'cma'          => 0.00015,
+            'cma'          => 0.0048,
         ],
     ],
     'liberal_cipav' => [
