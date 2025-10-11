@@ -2,53 +2,65 @@
    - case blanche, bord bleu
    - coche (✓) bleue bien visible
    - focus accessible
-   - fonctionne avec Bootstrap (.form-check-input) et les <input type="checkbox"> classiques
+   - ne s'applique qu'aux checkboxes (pas aux radios)
 */
 
-input[type="checkbox"],
-.form-check-input {
-  appearance: none;
-  width: 1.15rem;
-  height: 1.15rem;
-  border: 2px solid #0d6efd;
-  border-radius: .25rem;
-  background: #fff;
-  display: inline-block;
-  vertical-align: middle;
-  position: relative;
-  cursor: pointer;
-}
-
-/* Focus visible (accessibilité) */
-input[type="checkbox"]:focus,
-.form-check-input:focus {
-  outline: none;
-  box-shadow: 0 0 0 .2rem rgba(13,110,253,.25);
-}
-
-/* Coche bleue sur fond blanc */
-input[type="checkbox"]:checked,
-.form-check-input:checked {
-  background: #fff;          /* on garde la case blanche */
-  border-color: #0d6efd;     /* bord bleu */
-}
-input[type="checkbox"]:checked::after,
-.form-check-input:checked::after {
-  content: '';
-  position: absolute;
-  left: .30rem;               /* ajustez si nécessaire selon votre police */
-  top:  .05rem;
-  width: .38rem;
-  height: .70rem;
-  border: .18rem solid #0d6efd;  /* COULEUR DE LA COCHE */
-  border-top: 0;
-  border-left: 0;
-  transform: rotate(45deg);
-}
-
-/* État désactivé (toujours lisible) */
-input[type="checkbox"]:disabled,
-.form-check-input:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-}
+input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    border: 2px solid #0d6efd;
+    border-radius: .25rem;
+    background: #fff;
+    position: relative;
+    cursor: pointer;
+    vertical-align: middle;
+    display: inline-block;
+  }
+  
+  /* Focus visible (accessibilité) */
+  input[type="checkbox"]:focus {
+    outline: none;
+    box-shadow: 0 0 0 .2rem rgba(13,110,253,.25);
+  }
+  
+  /* Coche bleue sur fond blanc */
+  input[type="checkbox"]:checked {
+    background: #fff;          /* on garde la case blanche */
+    border-color: #0d6efd;     /* bord bleu */
+  }
+  input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: .30rem;               /* ajustez au besoin selon votre police */
+    top:  .05rem;
+    width: .38rem;
+    height: .70rem;
+    border: .18rem solid #0d6efd;  /* COULEUR DE LA COCHE */
+    border-top: 0;
+    border-left: 0;
+    transform: rotate(45deg);
+  }
+  
+  /* État indéterminé (barre) si vous l'utilisez */
+  input[type="checkbox"]:indeterminate {
+    background: #fff;
+    border-color: #0d6efd;
+  }
+  input[type="checkbox"]:indeterminate::after {
+    content: '';
+    position: absolute;
+    left: .22rem;
+    top: .45rem;
+    width: .60rem;
+    height: .18rem;
+    background: #0d6efd;
+    border-radius: .12rem;
+  }
+  
+  /* État désactivé (lisible) */
+  input[type="checkbox"]:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+  }
