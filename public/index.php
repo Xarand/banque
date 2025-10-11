@@ -172,19 +172,10 @@ if ($hasCategories && $trxHasCat && $categoryId) {
     $where .= " AND t.category_id = :cat";
     $params[':cat'] = $categoryId;
 }
-if ($dateFrom) {
-    $where .= " AND date(t.date) >= date(:df)";
-    $params[':df'] = $dateFrom;
-}
-if ($dateTo) {
-    $where .= " AND date(t.date) <= date(:dt)";
-    $params[':dt'] = $dateTo;
-}
-if ($type === 'credit') {
-    $where .= " AND t.amount > 0";
-} elseif ($type === 'debit') {
-    $where .= " AND t.amount < 0";
-}
+if ($dateFrom) { $where .= " AND date(t.date) >= date(:df)"; $params[':df'] = $dateFrom; }
+if ($dateTo)   { $where .= " AND date(t.date) <= date(:dt)"; $params[':dt'] = $dateTo; }
+if ($type === 'credit') { $where .= " AND t.amount > 0"; }
+elseif ($type === 'debit') { $where .= " AND t.amount < 0"; }
 if ($qSearch !== '') {
     $where .= " AND (t.description LIKE :q OR t.notes LIKE :q)";
     $params[':q'] = '%'.$qSearch.'%';
@@ -226,7 +217,7 @@ $baseFilters = [
 ];
 $exportUrl = 'export_csv.php?'.buildQuery($baseFilters);
 
-// Lien "Nouvelle transaction" (création)
+// Lien "Nouvelle transaction"
 $newTxParams = ['new' => 1];
 if ($accountId) $newTxParams['account_id'] = (int)$accountId;
 $newTxUrl = 'transaction_edit.php?' . http_build_query($newTxParams);
@@ -241,8 +232,8 @@ $currentQuery = $_SERVER['QUERY_STRING'] ?? '';
 <title>Tableau</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<?php include __DIR__.'/_head_assets.php'; ?>
 <style>
-body { background:#f5f6f8; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 .table td, .table th { vertical-align: middle; }
 </style>
@@ -325,7 +316,6 @@ body { background:#f5f6f8; }
               <button class="btn btn-primary btn-sm">Appliquer</button>
               <a class="btn btn-outline-secondary btn-sm" href="index.php">Réinitialiser</a>
               <a class="btn btn-outline-success btn-sm ms-auto" href="<?= h($exportUrl) ?>">Exporter CSV</a>
-              <!-- Bouton “Nouvelle transaction” SUPPRIMÉ ici à la demande -->
             </div>
           </form>
         </div>

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Pas d’autoload strictement nécessaire ici, mais on garde la nav et l'auth si disponibles
+// Autoload + Auth (facultatifs)
 if (file_exists(__DIR__.'/../vendor/autoload.php')) {
     require __DIR__.'/../vendor/autoload.php';
     if (class_exists(\App\Util::class)) {
@@ -30,7 +30,7 @@ include __DIR__.'/_nav.php';
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>Thème — Couleurs</title>
+<title>Thème — Couleurs (clair)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
@@ -44,31 +44,38 @@ include __DIR__.'/_nav.php';
 
   <div class="card shadow-sm">
     <div class="card-header py-2 d-flex justify-content-between align-items-center">
-      <strong>Couleurs du thème</strong>
-      <a class="btn btn-sm btn-outline-secondary" href="toggle_theme.php">
-        Basculer clair/sombre
-      </a>
+      <strong>Couleurs du thème (clair)</strong>
     </div>
     <div class="card-body">
       <form method="post" action="save_theme.php" class="row g-3">
 
         <div class="col-md-3">
-          <label class="form-label">Couleur principale (accent)</label>
+          <label class="form-label">Accent (primary)</label>
           <input type="color" class="form-control form-control-color" name="primary" value="<?= val('primary','#0D6EFD') ?>">
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">Fond de page (app_bg)</label>
+          <label class="form-label">Fond page (app_bg)</label>
           <input type="color" class="form-control form-control-color" name="app_bg" value="<?= val('app_bg','#F5F6F8') ?>">
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">Fond des cartes (card_bg)</label>
+          <label class="form-label">Fond cartes (card_bg)</label>
           <input type="color" class="form-control form-control-color" name="card_bg" value="<?= val('card_bg','#FFFFFF') ?>">
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">Fond de la barre (nav_bg)</label>
+          <label class="form-label">En‑tête cartes (fond)</label>
+          <input type="color" class="form-control form-control-color" name="card_header_bg" value="<?= val('card_header_bg','#F8F9FA') ?>">
+        </div>
+
+        <div class="col-md-3">
+          <label class="form-label">En‑tête cartes (texte)</label>
+          <input type="color" class="form-control form-control-color" name="card_header_text" value="<?= val('card_header_text','#212529') ?>">
+        </div>
+
+        <div class="col-md-3">
+          <label class="form-label">Fond barre (nav_bg)</label>
           <input type="color" class="form-control form-control-color" name="nav_bg" value="<?= val('nav_bg','#F8F9FA') ?>">
         </div>
 
@@ -88,32 +95,32 @@ include __DIR__.'/_nav.php';
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">En-têtes de tableaux (thead_bg)</label>
+          <label class="form-label">En‑tête de tableau (thead_bg)</label>
           <input type="color" class="form-control form-control-color" name="thead_bg" value="<?= val('thead_bg','#F1F3F5') ?>">
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">Fond champs (input_bg)</label>
+          <label class="form-label">Champs (fond)</label>
           <input type="color" class="form-control form-control-color" name="input_bg" value="<?= val('input_bg','#FFFFFF') ?>">
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">Texte champs (input_fg)</label>
+          <label class="form-label">Champs (texte)</label>
           <input type="color" class="form-control form-control-color" name="input_fg" value="<?= val('input_fg','#212529') ?>">
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">Bordure champs (input_border)</label>
+          <label class="form-label">Champs (bordure)</label>
           <input type="color" class="form-control form-control-color" name="input_border" value="<?= val('input_border','#CED4DA') ?>">
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">Survol lignes tableau</label>
+          <label class="form-label">Survol ligne tableau</label>
           <input type="color" class="form-control form-control-color" name="table_row_hover" value="<?= val('table_row_hover','#F8F9FA') ?>">
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">Liens navbar (nav_link) — optionnel</label>
+          <label class="form-label">Liens navbar (nav_link)</label>
           <input type="color" class="form-control form-control-color" name="nav_link" value="<?= val('nav_link','#495057') ?>">
         </div>
 
@@ -122,9 +129,7 @@ include __DIR__.'/_nav.php';
           <button class="btn btn-outline-danger" name="reset" value="1" type="submit">Réinitialiser</button>
         </div>
 
-        <div class="form-text">
-          Astuce: après modification, si le navigateur ne recharge pas le CSS, faites Ctrl+F5.
-        </div>
+        <div class="form-text">Astuce: Ctrl+F5 si le navigateur garde l’ancien style.</div>
       </form>
     </div>
   </div>

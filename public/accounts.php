@@ -407,12 +407,11 @@ $mc_decl = (string)($microRow['declaration_period'] ?? 'quarterly');
 <title>Comptes</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<?php include __DIR__.'/_head_assets.php'; ?>
 <style>
-body { background:#f5f6f8; }
 .badge-micro { background:#0d6efd; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace; }
 /* Cases à cocher pleines et visibles */
-/* Cases à cocher pleines avec coche BLEUE visible */
 .form-check-input.checkbox-solid{
   appearance:none;
   width:1.15rem; height:1.15rem;
@@ -428,27 +427,20 @@ body { background:#f5f6f8; }
 }
 /* coche bleue (✓) dessinée en CSS, sur fond blanc */
 .form-check-input.checkbox-solid:checked{
-  background:#fff;      /* on garde la case blanche */
-  border-color:#0d6efd; /* bord bleu */
+  background:#fff;
+  border-color:#0d6efd;
 }
 .form-check-input.checkbox-solid:checked::after{
   content:'';
   position:absolute;
-  left:.30rem;          /* ajustez ces 4 valeurs si besoin */
-  top:.05rem;
-  width:.38rem;
-  height:.70rem;
-  border:.18rem solid #0d6efd; /* COULEUR DE LA COCHE */
-  border-top:0;
-  border-left:0;
+  left:.30rem; top:.05rem;
+  width:.38rem; height:.70rem;
+  border:.18rem solid #0d6efd;
+  border-top:0; border-left:0;
   transform:rotate(45deg);
 }
-
-/* Bonus: colore aussi les checkboxes “classiques” si vous en avez ailleurs */
-.form-check-input:not(.checkbox-solid){
-  accent-color:#0d6efd; /* coche blanche sur fond bleu (comportement natif) */
-}
-.form-check-input.checkbox-solid:focus { box-shadow: 0 0 0 .2rem rgba(13,110,253,.25); outline: none; }
+/* Bonus: style par défaut si non .checkbox-solid */
+.form-check-input:not(.checkbox-solid){ accent-color:#0d6efd; }
 </style>
 </head>
 <body>

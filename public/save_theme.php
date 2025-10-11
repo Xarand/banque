@@ -3,9 +3,7 @@ declare(strict_types=1);
 
 /**
  * Sauvegarde des couleurs personnalisées dans le cookie "theme_vars" (JSON).
- * Attend des champs POST (HEX) : primary, app_bg, card_bg, nav_bg, fg, input_bg, input_fg,
- * input_border, border, thead_bg, muted, table_row_hover, nav_link.
- * Bouton "reset" pour effacer les réglages.
+ * Ajout: card_header_bg et card_header_text pour styliser les en-têtes des cartes.
  */
 
 function hexOrNull(?string $v): ?string {
@@ -29,7 +27,12 @@ if ($reset) {
     exit;
 }
 
-$keys = ['primary','app_bg','card_bg','nav_bg','fg','input_bg','input_fg','input_border','border','thead_bg','muted','table_row_hover','nav_link'];
+$keys = [
+  'primary','app_bg','card_bg','card_header_bg','card_header_text','nav_bg','fg',
+  'input_bg','input_fg','input_border','border','thead_bg','muted',
+  'table_row_hover','nav_link'
+];
+
 $out = [];
 foreach ($keys as $k) {
     $val = hexOrNull($_POST[$k] ?? null);

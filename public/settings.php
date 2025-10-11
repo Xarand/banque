@@ -37,8 +37,7 @@ function ensureColumn(PDO $pdo, string $table, string $col, string $typeSql = "T
 }
 
 /*
-  Réglages: Catégories uniquement.
-  Le Thème (couleurs) a été déplacé dans l’onglet dédié (settings_theme.php).
+  Réglages: Catégories uniquement (Thème séparé).
 */
 
 // Présence des tables/colonnes
@@ -50,21 +49,17 @@ $catHasUser    = $hasCategories ? hasCol($pdo, 'categories', 'user_id') : false;
 // S’assure que la colonne type (credit|debit) existe si la table existe
 if ($hasCategories && !hasCol($pdo, 'categories', 'type')) {
     ensureColumn($pdo, 'categories', 'type', "TEXT");
-    // Initialise à 'debit' par défaut
     $pdo->exec("UPDATE categories SET type='debit' WHERE type IS NULL OR type=''");
 }
 
-// POST
+// POST (inchangé)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         Util::checkCsrf();
         $action = (string)($_POST['action'] ?? '');
 
         if ($action === 'create_categories_table') {
-            if ($hasCategories) {
-                Util::addFlash('info', 'La table catégories existe déjà.');
-                Util::redirect('settings.php');
-            }
+            if ($hasCategories) { Util::addFlash('info', 'La table catégories existe déjà.'); Util::redirect('settings.php'); }
             $pdo->beginTransaction();
             try {
                 $pdo->exec("
@@ -76,13 +71,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   );
                 ");
                 $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS ux_categories_user_name ON categories(user_id, name);");
-                // Par défaut, 'debit' si null
                 $pdo->exec("UPDATE categories SET type='debit' WHERE type IS NULL OR type=''");
                 $pdo->commit();
-            } catch (Throwable $e) {
-                $pdo->rollBack();
-                throw $e;
-            }
+            } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
             Util::addFlash('success', 'Table catégories créée.');
             Util::redirect('settings.php');
         }
@@ -112,7 +103,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($cid <= 0) throw new RuntimeException("Catégorie invalide.");
             if ($name === '') throw new RuntimeException("Nom de catégorie requis.");
 
-            // sécurité appartenance
             if ($catHasUser) {
                 $st = $pdo->prepare("SELECT COUNT(*) FROM categories WHERE id=:id AND user_id=:u");
                 $st->execute([':id'=>$cid, ':u'=>$userId]);
@@ -133,7 +123,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $cid = (int)($_POST['category_id'] ?? 0);
             if ($cid <= 0) throw new RuntimeException("Catégorie invalide.");
 
-            // sécurité appartenance
             if ($catHasUser) {
                 $st = $pdo->prepare("SELECT COUNT(*) FROM categories WHERE id=:id AND user_id=:u");
                 $st->execute([':id'=>$cid, ':u'=>$userId]);
@@ -142,25 +131,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->beginTransaction();
             try {
-                // Supprime les transactions liées à cette catégorie (si colonne présente)
                 if ($trxHasCat) {
                     $sqlDelTx = "DELETE FROM transactions WHERE category_id = :c";
                     $p = [':c'=>$cid];
                     if ($trxHasUser) { $sqlDelTx .= " AND user_id = :u"; $p[':u'] = $userId; }
                     $pdo->prepare($sqlDelTx)->execute($p);
                 }
-
-                // Supprime la catégorie
                 $sqlDelCat = "DELETE FROM categories WHERE id = :id";
                 $p2 = [':id'=>$cid];
                 if ($catHasUser) { $sqlDelCat .= " AND user_id = :u"; $p2[':u'] = $userId; }
                 $pdo->prepare($sqlDelCat)->execute($p2);
-
                 $pdo->commit();
-            } catch (Throwable $e) {
-                $pdo->rollBack();
-                throw $e;
-            }
+            } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
 
             Util::addFlash('success', 'Catégorie et transactions liées supprimées.');
             Util::redirect('settings.php');
@@ -195,6 +177,7 @@ $editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
 <title>Réglages — Catégories</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<?php include __DIR__.'/_head_assets.php'; ?>
 </head>
 <body>
 <?php include __DIR__.'/_nav.php'; ?>

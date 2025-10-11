@@ -1,0 +1,10 @@
+/* Harmonise les cartes, en-têtes et zones claires avec vos couleurs de thème */
+.bg-white { background-color: var(--card-bg) !important; }
+
+.card { background-color: var(--card-bg) !important; color: var(--app-fg) !important; border-color: var(--app-border) !important; }
+.card-header { background-color: var(--card-header-bg) !important; color: var(--card-header-text) !important; border-bottom-color: var(--app-border) !important; }
+
+.table thead, .table-light { background-color: var(--thead-bg) !important; color: var(--app-fg) !important; }
+.table > :not(caption) > * > * { border-color: var(--app-border) !important; }
+
+.alert-light { background-color: var(--card-bg) !important; color: var(--app-fg) !important; border-color: var(--app-border) !important; }
