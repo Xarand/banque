@@ -1,10 +1,36 @@
-/* Harmonise les cartes, en-têtes et zones claires avec vos couleurs de thème */
-.bg-white { background-color: var(--card-bg) !important; }
+/* Logo navbar (si déjà présent dans votre fichier) */
+.navbar-brand img.brand-logo{
+  height: var(--brand-h, 44px);
+  max-height: var(--brand-h, 44px);
+  width: auto;
+  display: block;
+  background: transparent !important;
+  object-fit: contain;
+}
+@media (max-width: 576px){
+  .navbar-brand img.brand-logo{ height: 36px; max-height: 36px; }
+}
 
+/* Cartes et éléments clairs */
+.bg-white { background-color: var(--card-bg) !important; }
 .card { background-color: var(--card-bg) !important; color: var(--app-fg) !important; border-color: var(--app-border) !important; }
 .card-header { background-color: var(--card-header-bg) !important; color: var(--card-header-text) !important; border-bottom-color: var(--app-border) !important; }
 
-.table thead, .table-light { background-color: var(--thead-bg) !important; color: var(--app-fg) !important; }
+/* Bordures de tableaux */
 .table > :not(caption) > * > * { border-color: var(--app-border) !important; }
 
-.alert-light { background-color: var(--card-bg) !important; color: var(--app-fg) !important; border-color: var(--app-border) !important; }
+/* EN‑TÊTE DE TABLEAU piloté par --thead-bg
+   - Couvre les <thead> simples ET les blocs marqués .table-light
+   - Force la couleur et le texte pour une bonne lisibilité
+*/
+.table thead,
+.table thead tr,
+.table thead th,
+.table thead td,
+.table-light {
+  background-color: var(--thead-bg) !important;
+  color: var(--app-fg) !important;
+}
+
+/* Optionnel: garder le corps avec fond de carte (utile dans des sections claires) */
+.table tbody tr { background-color: var(--card-bg) !important; color: var(--app-fg) !important; }

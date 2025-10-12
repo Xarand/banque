@@ -37,7 +37,7 @@ function ensureColumn(PDO $pdo, string $table, string $col, string $typeSql = "T
 }
 
 /*
-  Réglages: Catégories uniquement (Thème séparé).
+  Réglages: Catégories (le thème se gère dans settings_theme.php).
 */
 
 // Présence des tables/colonnes
@@ -52,7 +52,7 @@ if ($hasCategories && !hasCol($pdo, 'categories', 'type')) {
     $pdo->exec("UPDATE categories SET type='debit' WHERE type IS NULL OR type=''");
 }
 
-// POST (inchangé)
+// POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         Util::checkCsrf();
@@ -188,16 +188,6 @@ $editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
     <div class="alert alert-<?= h($fl['type']) ?> py-2"><?= h($fl['msg']) ?></div>
   <?php endforeach; ?>
 
-  <div class="alert alert-info d-flex justify-content-between align-items-center">
-    <div>
-      Les réglages de <strong>Thème</strong> ont été déplacés dans l’onglet dédié.
-      <span class="text-muted">Ici, vous ne gérez plus que les catégories.</span>
-    </div>
-    <?php if (is_file(__DIR__.'/settings_theme.php')): ?>
-      <a class="btn btn-sm btn-outline-primary" href="settings_theme.php">Ouvrir l’onglet Thème</a>
-    <?php endif; ?>
-  </div>
-
   <div class="row g-4">
     <div class="col-lg-6">
       <div class="card shadow-sm">
@@ -253,7 +243,7 @@ $editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
                     <tr><td colspan="3" class="text-muted">Aucune catégorie.</td></tr>
                   <?php else: foreach ($categories as $c): ?>
                     <?php if ($editId === (int)$c['id']): ?>
-                      <!-- Ligne édition -->
+                      <!-- Édition -->
                       <tr>
                         <td>
                           <form method="post" class="row g-2 align-items-center">
@@ -277,7 +267,7 @@ $editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
                         </td>
                       </tr>
                     <?php else: ?>
-                      <!-- Ligne affichage -->
+                      <!-- Ligne -->
                       <tr>
                         <td><?= h($c['name']) ?></td>
                         <td><?= $c['type']==='credit' ? 'Crédit' : 'Débit' ?></td>
@@ -304,6 +294,9 @@ $editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
 
     <div class="col-lg-6">
       <!-- Espace réservé à d’autres réglages futurs -->
+      <div class="alert alert-light">
+        Gérez le thème dans l’onglet <a href="settings_theme.php">Thèmes</a>.
+      </div>
     </div>
   </div>
 
