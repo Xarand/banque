@@ -34,3 +34,10 @@
 
 /* Optionnel: garder le corps avec fond de carte (utile dans des sections claires) */
 .table tbody tr { background-color: var(--card-bg) !important; color: var(--app-fg) !important; }
+/* Texte blanc sur le bouton primaire (ex: "Nouvelle transaction") */
+.btn-primary,
+.btn-primary:focus,
+.btn-primary:hover,
+.btn-primary:active {
+  color: #fff !important;
+}

@@ -2,11 +2,9 @@
 declare(strict_types=1);
 
 require __DIR__.'/../vendor/autoload.php';
+require_once __DIR__.'/../config/bootstrap.php';
 
 use App\{Util, Database};
-
-ini_set('display_errors','1'); // désactiver en prod si besoin
-error_reporting(E_ALL);
 
 Util::startSession();
 Util::requireAuth();
@@ -41,6 +39,7 @@ function ensureMicroTable(PDO $pdo): void {
         $pdo->exec("
           CREATE TABLE IF NOT EXISTS micro_enterprises (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
             user_id INTEGER,
             activity_code TEXT,
             created_at TEXT,
@@ -57,7 +56,9 @@ function ensureMicroTable(PDO $pdo): void {
         ");
         $pdo->exec("CREATE INDEX IF NOT EXISTS ix_micro_user ON micro_enterprises(user_id)");
     } else {
+        // Assure les colonnes clés (y compris 'name') puis met un nom par défaut si vide
         foreach ([
+            ['name','TEXT'],
             ['user_id','INTEGER'],
             ['activity_code','TEXT'],
             ['created_at','TEXT'],
@@ -71,6 +72,9 @@ function ensureMicroTable(PDO $pdo): void {
             ['cfp_rate','REAL'],
             ['cma_rate','REAL'],
         ] as [$c,$t]) ensureColumn($pdo, 'micro_enterprises', $c, $t);
+
+        // Remplit tout name manquant (évite l’erreur NOT NULL si votre table l’impose)
+        $pdo->exec("UPDATE micro_enterprises SET name='Micro' WHERE name IS NULL OR TRIM(name)=''");
     }
 }
 
@@ -199,12 +203,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new RuntimeException("Un seul compte Micro est autorisé.");
                 }
 
-                // Crée/maj la micro
+                // Crée/maj la micro — IMPORTANT: on renseigne 'name'
                 if (!$microRow) {
                     $pdo->prepare("
-                      INSERT INTO micro_enterprises (user_id, activity_code, created_at, declaration_period, versement_liberatoire)
-                      VALUES (:u, :ac, :dt, :dp, :vl)
+                      INSERT INTO micro_enterprises (name, user_id, activity_code, created_at, declaration_period, versement_liberatoire)
+                      VALUES (:name, :u, :ac, :dt, :dp, :vl)
                     ")->execute([
+                        ':name'=>'Micro',
                         ':u'=>$userId,
                         ':ac'=>$activityCode,
                         ':dt'=>$creationDate !== '' ? $creationDate : date('Y-m-d'),
@@ -213,6 +218,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                     $microId = (int)$pdo->lastInsertId();
                 } else {
+                    // Par sécurité, s'assurer que le nom existe
+                    if (!isset($microRow['name']) || trim((string)$microRow['name']) === '') {
+                        $pdo->prepare("UPDATE micro_enterprises SET name='Micro' WHERE id=:id AND user_id=:u")
+                            ->execute([':id'=>(int)$microRow['id'], ':u'=>$userId]);
+                    }
                     $microId = (int)$microRow['id'];
                     $pdo->prepare("
                       UPDATE micro_enterprises
@@ -231,7 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 }
 
-                // Applique barèmes depuis micro_activities.php
+                // Applique barèmes
                 applyActivityToMicro($pdo, $microId, $activityCode, $liberatoire, $activities);
             }
 
@@ -277,6 +287,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $declPeriod   = (string)($_POST['declaration_period'] ?? 'quarterly');
 
                     if ($activityCode !== '' && isset($activities[$activityCode])) {
+                        // S'assure que le name n'est pas vide
+                        $pdo->prepare("UPDATE micro_enterprises SET name = COALESCE(NULLIF(name,''),'Micro') WHERE id=:id AND user_id=:u")
+                            ->execute([':id'=>$mid, ':u'=>$userId]);
+
                         $pdo->prepare("
                           UPDATE micro_enterprises
                           SET activity_code=:ac,

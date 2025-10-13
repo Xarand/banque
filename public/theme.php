@@ -1,13 +1,9 @@
 <?php
 declare(strict_types=1);
 
-// Feuille de style thématique générée dynamiquement.
-// Chargée via _head_assets.php, prend ses valeurs dans le cookie theme_vars ou retombe sur $defaults.
-
 header('Content-Type: text/css; charset=UTF-8');
 header('Cache-Control: no-cache, must-revalidate');
 
-// Nouvelles valeurs par défaut (réinitialisation)
 $defaults = [
   '--primary'          => '#0D1DFD',
   '--app-bg'           => '#AFDEE4',
@@ -19,7 +15,6 @@ $defaults = [
   '--thead-bg'         => '#83BFCE'
 ];
 
-// Construit les variables à partir du cookie
 $vars = $defaults;
 if (!empty($_COOKIE['theme_vars'])) {
     $j = json_decode((string)$_COOKIE['theme_vars'], true);
@@ -41,8 +36,6 @@ function cssVars(array $vars): string {
 
 echo "/* Theme CSS generated ".gmdate('c')." */\n";
 echo cssVars($vars);
-
-// Habillage Bootstrap minimal basé sur variables
 ?>
 body{background-color:var(--app-bg);color:var(--app-fg)}
 .border,.card,.table,.form-control,.form-select{border-color:var(--app-border)!important}
@@ -50,4 +43,15 @@ body{background-color:var(--app-bg);color:var(--app-fg)}
 .card-header{background-color:var(--card-header-bg)!important;color:var(--card-header-text)!important;border-bottom-color:var(--app-border)!important}
 .table thead,.table-light{background-color:var(--thead-bg)!important;color:var(--app-fg)!important}
 a, .link-primary{color:var(--primary)!important}
-.btn-primary{--bs-btn-bg:var(--primary);--bs-btn-border-color:var(--primary)}
+/* Bouton primaire: texte blanc garanti */
+.btn-primary{
+  --bs-btn-color:#fff;
+  --bs-btn-bg:var(--primary);
+  --bs-btn-border-color:var(--primary);
+  --bs-btn-hover-color:#fff;
+  --bs-btn-hover-bg:var(--primary);
+  --bs-btn-hover-border-color:var(--primary);
+  --bs-btn-active-color:#fff;
+  --bs-btn-active-bg:var(--primary);
+  --bs-btn-active-border-color:var(--primary);
+}

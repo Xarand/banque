@@ -1,0 +1,4 @@
+# Apache 2.4+
+Require all denied
+# Apache 2.2 (au besoin)
+# Deny from all
