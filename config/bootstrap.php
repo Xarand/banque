@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+// Défaut pour le CLI: certaines commandes n'ont pas $_SERVER['REQUEST_METHOD']
+if (!isset($_SERVER['REQUEST_METHOD'])) {
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+}
+
 // Force le mode production
 if (!defined('APP_ENV')) {
     define('APP_ENV', 'prod');

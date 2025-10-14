@@ -132,26 +132,7 @@ function h(string $s): string { return App\Util::h($s); }
       </div>
     </div>
 
-    <div class="col-lg-6">
-      <div class="card shadow-sm preview-card">
-        <div class="card-header py-2">Aperçu</div>
-        <div class="card-body">
-          <p>Texte principal avec <a href="#" class="link-primary">lien primaire</a>.</p>
-          <div class="alert alert-light">Bloc “clair”</div>
-          <table class="table table-sm">
-            <thead class="table-light"><tr><th>En-tête</th><th>Valeur</th></tr></thead>
-            <tbody>
-              <tr><td>Bordure</td><td><code>--app-border</code></td></tr>
-              <tr><td>Fond carte</td><td><code>--card-bg</code></td></tr>
-            </tbody>
-          </table>
-          <button class="btn btn-primary btn-sm">Bouton primaire</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-</div>
+   </div>
 
 <script>
 (function(){

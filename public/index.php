@@ -13,6 +13,9 @@ $pdo = (new Database())->pdo();
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $userId = Util::currentUserId();
 
+// Helper catégories actives sans doublons
+require_once __DIR__.'/_filters_helpers.php';
+
 function h(string $s): string { return App\Util::h($s); }
 function fmt(float $n): string { return number_format($n, 2, ',', ' '); }
 
@@ -34,9 +37,10 @@ function hasCol(PDO $pdo, string $table, string $col): bool {
     }
     return false;
 }
-$accHasUser = hasCol($pdo, 'accounts', 'user_id');
-$trxHasUser = hasCol($pdo, 'transactions', 'user_id');
-$trxHasCat  = hasCol($pdo, 'transactions', 'category_id');
+$accHasUser      = hasCol($pdo, 'accounts', 'user_id');
+$trxHasUser      = hasCol($pdo, 'transactions', 'user_id');
+$trxHasCat       = hasCol($pdo, 'transactions', 'category_id');
+$trxHasRecurring = hasCol($pdo, 'transactions', 'recurring_id'); // NEW
 
 // POST: suppression d'une transaction
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -94,11 +98,14 @@ function parseDate(?string $s): ?string {
     return null;
 }
 $accountId  = isset($_GET['account_id']) ? (int)$_GET['account_id'] : null;
-$categoryId = isset($_GET['category_id']) ? (int)$_GET['category_id'] : null;
+$categoryId = isset($_GET['category_id']) && $_GET['category_id'] !== '' ? (int)$_GET['category_id'] : null;
 $dateFrom   = parseDate($_GET['from'] ?? $_GET['du'] ?? null);
 $dateTo     = parseDate($_GET['to']   ?? $_GET['au'] ?? null);
 $type       = in_array(($_GET['type'] ?? ''), ['credit','debit'], true) ? $_GET['type'] : '';
 $qSearch    = trim((string)($_GET['q'] ?? ''));
+
+// NEW: filtre récurrence (''|only|none)
+$recurrence = in_array(($_GET['rec'] ?? ''), ['only','none'], true) ? (string)$_GET['rec'] : '';
 
 // Pagination
 $perPage = (int)($_GET['pp'] ?? 50);
@@ -138,19 +145,15 @@ if ($accounts) {
     }
 }
 
-// Catégories pour filtre
-$categories = [];
-if ($hasCategories) {
-    $stC = $pdo->prepare("SELECT id, name FROM categories ORDER BY name ASC");
-    $stC->execute();
-    $categories = $stC->fetchAll(PDO::FETCH_ASSOC) ?: [];
-}
-
 // Requête Transactions
 $cols = [
     "t.id", "t.date", "t.amount", "t.description", "t.notes",
     "a.name AS account"
 ];
+if ($trxHasRecurring) {
+    $cols[] = "t.recurring_id AS recurring_id";
+    $cols[] = "(t.recurring_id IS NOT NULL) AS is_recurring";
+}
 if ($hasCategories && $trxHasCat) $cols[] = "c.name AS category";
 
 $fromJoin = " FROM transactions t JOIN accounts a ON a.id = t.account_id ";
@@ -169,6 +172,12 @@ if ($accountId) {
 if ($hasCategories && $trxHasCat && $categoryId) {
     $where .= " AND t.category_id = :cat";
     $params[':cat'] = $categoryId;
+}
+if ($trxHasRecurring && $recurrence === 'only') {
+    $where .= " AND t.recurring_id IS NOT NULL";
+}
+if ($trxHasRecurring && $recurrence === 'none') {
+    $where .= " AND t.recurring_id IS NULL";
 }
 if ($dateFrom) { $where .= " AND date(t.date) >= date(:df)"; $params[':df'] = $dateFrom; }
 if ($dateTo)   { $where .= " AND date(t.date) <= date(:dt)"; $params[':dt'] = $dateTo; }
@@ -210,6 +219,7 @@ $baseFilters = [
     'to'          => $dateTo ?: null,
     'type'        => $type ?: null,
     'q'           => $qSearch !== '' ? $qSearch : null,
+    'rec'         => $trxHasRecurring ? ($recurrence ?: null) : null, // NEW
     'pp'          => $perPage,
     'p'           => $page
 ];
@@ -234,6 +244,7 @@ $currentQuery = $_SERVER['QUERY_STRING'] ?? '';
 <style>
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 .table td, .table th { vertical-align: middle; }
+.badge-rec { font-size: .70rem; } /* petit badge "Récurrente" */
 </style>
 </head>
 <body>
@@ -267,13 +278,20 @@ $currentQuery = $_SERVER['QUERY_STRING'] ?? '';
             <?php if ($hasCategories): ?>
             <div class="col-12">
               <label class="form-label">Catégorie</label>
-              <select name="category_id" class="form-select form-select-sm">
-                <option value="">Toutes</option>
-                <?php foreach ($categories as $c): ?>
-                  <option value="<?= (int)$c['id'] ?>" <?= ($categoryId===(int)$c['id'])?'selected':'' ?>>
-                    <?= h($c['name']) ?>
-                  </option>
-                <?php endforeach; ?>
+              <?php
+                $selectedCategoryId = $categoryId ?: null;
+                renderCategorySelect($pdo, $userId, $selectedCategoryId, 'category_id', true);
+              ?>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($trxHasRecurring): ?>
+            <div class="col-12">
+              <label class="form-label">Récurrence</label>
+              <select name="rec" class="form-select form-select-sm">
+                <option value=""     <?= $recurrence===''    ?'selected':'' ?>>Toutes</option>
+                <option value="only" <?= $recurrence==='only'?'selected':'' ?>>Récurrentes uniquement</option>
+                <option value="none" <?= $recurrence==='none'?'selected':'' ?>>Non récurrentes</option>
               </select>
             </div>
             <?php endif; ?>
@@ -395,7 +413,12 @@ $currentQuery = $_SERVER['QUERY_STRING'] ?? '';
                   <td class="mono"><?= h(frDate((string)$r['date'])) ?></td>
                   <td><?= h($r['account']) ?></td>
                   <?php if ($hasCategories && $trxHasCat): ?><td><?= h($r['category'] ?? '') ?></td><?php endif; ?>
-                  <td><?= h($r['description'] ?? '') ?></td>
+                  <td>
+                    <?= h($r['description'] ?? '') ?>
+                    <?php if ($trxHasRecurring && !empty($r['is_recurring'])): ?>
+                      <span class="badge text-bg-info badge-rec ms-1">Récurrente</span>
+                    <?php endif; ?>
+                  </td>
                   <td class="text-end mono <?= ((float)$r['amount']<0)?'text-danger':'text-success' ?>">
                     <?= fmt((float)$r['amount']) ?> €
                   </td>
