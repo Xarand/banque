@@ -74,7 +74,7 @@ if (is_file($svgPath)) {
     }
 }
 
-// Email utilisateur (optionnel)
+// Email utilisateur (si dispo) et état d'authentification
 $navUserEmail = '';
 try {
     if (is_callable([\App\Util::class, 'currentUserEmail'])) {
@@ -87,6 +87,22 @@ try {
             $_SESSION['user_email'] ?? null,
             $_SESSION['email'] ?? null,
         ] as $cand) { if (is_string($cand) && $cand !== '') { $navUserEmail = $cand; break; } }
+    }
+} catch (\Throwable $e) { /* ignore */ }
+
+// Détermination robuste: utilisateur connecté ?
+$isAuth = false;
+try {
+    if (class_exists(\App\Util::class) && is_callable([\App\Util::class, 'currentUserId'])) {
+        $uid = (int)call_user_func([\App\Util::class, 'currentUserId']);
+        $isAuth = $uid > 0;
+    } else {
+        if (session_status() !== PHP_SESSION_ACTIVE) @session_start();
+        foreach ([
+            $_SESSION['user']['id'] ?? null,
+            $_SESSION['user_id'] ?? null,
+            $_SESSION['id'] ?? null,
+        ] as $cid) { if (is_numeric($cid) && (int)$cid > 0) { $isAuth = true; break; } }
     }
 } catch (\Throwable $e) { /* ignore */ }
 ?>
@@ -117,11 +133,18 @@ try {
         <?php endif; ?>
       </ul>
       <div class="d-flex align-items-center gap-2">
-        <?php if ($navUserEmail !== ''): ?>
+        <?php if ($isAuth && $navUserEmail !== ''): ?>
           <span class="navbar-text small text-muted d-none d-md-inline"><?= h($navUserEmail) ?></span>
         <?php endif; ?>
-        <?php if (is_file(__DIR__ . '/logout.php')): ?>
+
+        <?php if (is_file(__DIR__ . '/aide.php')): ?>
+          <a class="btn btn-sm btn-outline-primary" href="aide.php">Aide</a>
+        <?php endif; ?>
+
+        <?php if ($isAuth && is_file(__DIR__ . '/logout.php')): ?>
           <a class="btn btn-sm btn-outline-secondary" href="logout.php">Déconnexion</a>
+        <?php elseif (is_file(__DIR__ . '/login.php')): ?>
+          <a class="btn btn-sm btn-primary" href="login.php">Connexion</a>
         <?php endif; ?>
       </div>
     </div>
