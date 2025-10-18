@@ -137,10 +137,13 @@ try {
           <span class="navbar-text small text-muted d-none d-md-inline"><?= h($navUserEmail) ?></span>
         <?php endif; ?>
 
+<<<<<<< HEAD
         <?php if (is_file(__DIR__ . '/faq.php')): ?>
           <a class="btn btn-sm btn-outline-primary" href="faq.php">FAQ</a>
         <?php endif; ?>
 
+=======
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
         <?php if (is_file(__DIR__ . '/aide.php')): ?>
           <a class="btn btn-sm btn-outline-primary" href="aide.php">Aide</a>
         <?php endif; ?>

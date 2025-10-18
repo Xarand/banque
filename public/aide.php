@@ -41,6 +41,7 @@ function h(string $s): string { return App\Util::h($s); }
         <div class="card-header py-2"><strong>Sommaire</strong></div>
         <div class="card-body">
           <ol class="toc ps-3 mb-0">
+<<<<<<< HEAD
             <li><a href="#comptes"> Onglet Comptes</a></li>
             <li><a href="#reglages"> Onglet Réglage</a></li>
             <li><a href="#transactions"> Onglet Transactions</a></li>
@@ -48,6 +49,15 @@ function h(string $s): string { return App\Util::h($s); }
             <li><a href="#rapport"> Onglet Rapport</a></li>
             <li><a href="#theme"> Onglet Thème</a></li>
             <li><a href="#faq"> Onglet FAQ</a></li>
+=======
+            <li><a href="#comptes">1. Onglet Comptes</a></li>
+            <li><a href="#reglages">2. Onglet Réglage</a></li>
+            <li><a href="#transactions">3. Onglet Transactions</a></li>
+            <li><a href="#cotisations">4. Onglet Cotisations</a></li>
+            <li><a href="#rapport">5. Onglet Rapport</a></li>
+            <li><a href="#theme">6. Onglet Thème</a></li>
+            <li><a href="#faq">7. Onglet FAQ</a></li>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           </ol>
         </div>
       </div>
@@ -57,7 +67,11 @@ function h(string $s): string { return App\Util::h($s); }
       <div class="card shadow-sm">
         <div class="card-body">
 
+<<<<<<< HEAD
           <h2 id="comptes" class="h4">1. Onglet Comptes</h2>
+=======
+          <h2 id="comptes" class="h4">1) Onglet Comptes</h2>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <p>
             Dans « nouveau compte », saisissez votre nom de compte. Indiquez si c’est un compte personnel ou un compte Micro.
             Vous pouvez créer autant de comptes personnels que vous souhaitez, mais un seul compte Micro est possible.
@@ -74,15 +88,25 @@ function h(string $s): string { return App\Util::h($s); }
             Si vous ne cochez pas « Impôt libératoire », vos impôts seront intégrés dans votre déclaration annuelle de revenus.
           </p>
 
+<<<<<<< HEAD
           <h2 id="reglages" class="h4 mt-4">2. Onglet Réglage</h2>
+=======
+          <h2 id="reglages" class="h4 mt-4">2) Onglet Réglage</h2>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <p>
             Ajoutez des catégories de dépenses ou d’encaissements (ex. : Chiffre d’affaires, Apport, Fournitures, Cotisations sociales, Outillage, Carburant, Assurance, etc.).
             N'oubliez pas d'indiquer si la catégorie est un débit ou un crédit : lors de vos saisies les montants s’enregistreront automatiquement en positif ou négatif.
           </p>
 
+<<<<<<< HEAD
           <h2 id="transactions" class="h4 mt-4">3. Onglet Transactions</h2>
 
           <h3 class="h6 mt-2">3.1 Transactions</h3>
+=======
+          <h2 id="transactions" class="h4 mt-4">3) Onglet Transactions</h2>
+
+          <h3 class="h6 mt-2">3.1) Transactions</h3>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <ol>
             <li>Cliquez sur « Nouvelle transaction » pour ouvrir la page d’enregistrement.</li>
             <li>Datez la ligne (utilisez la date effective de la transaction).</li>
@@ -106,7 +130,11 @@ function h(string $s): string { return App\Util::h($s); }
             Dans cette fenêtre (Transactions), vous pouvez modifier une transaction via le bouton « Éditer » ou la supprimer.
           </p>
 
+<<<<<<< HEAD
           <h3 class="h6 mt-3">3.2 Filtres</h3>
+=======
+          <h3 class="h6 mt-3">3.2) Filtres</h3>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <p>
             Vous pouvez rechercher les mouvements par compte, catégorie, récurrence, date, débit/crédit, description ou note (tapez un mot‑clé).
             Cliquez sur « Appliquer » pour lancer la recherche.
@@ -115,12 +143,20 @@ function h(string $s): string { return App\Util::h($s); }
             Le résultat peut être exporté au format CSV en cliquant sur « Exporter CSV » pour traitement dans un tableur.
           </p>
 
+<<<<<<< HEAD
           <h3 class="h6 mt-3">3.3 Comptes (vue synthèse)</h3>
+=======
+          <h3 class="h6 mt-3">3.3) Comptes (vue synthèse)</h3>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <p>
             Cette zone affiche la position de chacun de vos comptes et la trésorerie totale de l’ensemble de vos comptes.
           </p>
 
+<<<<<<< HEAD
           <h2 id="cotisations" class="h4 mt-4">4. Onglet Cotisations</h2>
+=======
+          <h2 id="cotisations" class="h4 mt-4">4) Onglet Cotisations</h2>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <p>
             La fenêtre principale affiche le montant prévisionnel de vos cotisations à régler, calculé selon la fréquence de déclaration que vous avez choisie et selon le chiffre d’affaires que vous avez enregistré.
           </p>
@@ -129,7 +165,11 @@ function h(string $s): string { return App\Util::h($s); }
             Si vous dépassez ces montants, vous serez redevable de la TVA auprès de l’administration fiscale — consultez l’onglet « FAQ » pour plus de détails.
           </p>
 
+<<<<<<< HEAD
           <h2 id="rapport" class="h4 mt-4">5. Onglet Rapport</h2>
+=======
+          <h2 id="rapport" class="h4 mt-4">5) Onglet Rapport</h2>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <p>
             Cette page présente la tendance de vos crédits et débits selon les critères que vous sélectionnez.
             Vous pouvez filtrer par plage de dates, ou utiliser les pré‑filtres rapides (1 mois, 3 mois, 6 mois, 1 an).
@@ -139,14 +179,22 @@ function h(string $s): string { return App\Util::h($s); }
             Utilisez les boutons « Export crédit » et « Export dépenses » pour obtenir un affichage exploitable dans un tableur.
           </p>
 
+<<<<<<< HEAD
           <h2 id="theme" class="h4 mt-4">6. Onglet Thème</h2>
+=======
+          <h2 id="theme" class="h4 mt-4">6) Onglet Thème</h2>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <p>
             Cette page permet de personnaliser l’apparence de l’application (couleurs de fond et des textes).
             Lorsqu’une couleur est modifiée, l’aperçu s’applique immédiatement sur la page en cours ; les changements sont enregistrés uniquement après avoir cliqué sur « Enregistrer ».
             Le bouton « Réinitialiser » restaure les couleurs d’origine.
           </p>
 
+<<<<<<< HEAD
           <h2 id="faq" class="h4 mt-4">7. Onglet FAQ</h2>
+=======
+          <h2 id="faq" class="h4 mt-4">7) Onglet FAQ</h2>
+>>>>>>> 263d81e7e4119d765b3bab7153092f13ec10860c
           <p>
             Vous trouverez dans cette section les réponses aux questions fréquentes.
             Si votre question n’y figure pas, vous pouvez nous envoyer un message avec vos interrogations afin que nous complétions la FAQ.
